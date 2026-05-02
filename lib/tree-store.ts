@@ -5,6 +5,7 @@ import { buildImageAssetPath } from "@/lib/project-persistence";
 import type {
   CardPosition,
   CardSize,
+  DetailsTable,
   DraftImage,
   PasteFeedback,
   PendingImageAsset,
@@ -51,6 +52,18 @@ type TreeStore = {
   clearDraft: () => void;
   confirmDraft: (viewport: CardSize, visibleOrigin?: CardPosition) => void;
   updateCardDetails: (cardId: string, detailsText: string) => void;
+  ensureDetailsTable: (cardId: string) => void;
+  addDetailsTableRow: (cardId: string) => void;
+  addDetailsTableColumn: (cardId: string) => void;
+  setDetailsTableFromCells: (cardId: string, cells: string[][]) => void;
+  updateDetailsTableCell: (
+    cardId: string,
+    rowIndex: number,
+    columnIndex: number,
+    value: string,
+  ) => void;
+  resizeDetailsTableColumn: (cardId: string, columnIndex: number, width: number) => void;
+  resizeDetailsTableRow: (cardId: string, rowIndex: number, height: number) => void;
   selectCard: (cardId: string | null, options?: CardSelectionOptions) => void;
   openCard: (cardId: string) => void;
   closeCard: () => void;
@@ -78,6 +91,10 @@ const AUTO_LAYOUT_GAP = 24;
 const AUTO_LAYOUT_CARD_WIDTH = 320;
 const AUTO_LAYOUT_CARD_HEIGHT = 220;
 const AUTO_LAYOUT_CYCLE_OFFSET = 16;
+const DEFAULT_TABLE_COLUMN_WIDTH = 160;
+const DEFAULT_TABLE_ROW_HEIGHT = 48;
+const MIN_TABLE_COLUMN_WIDTH = 72;
+const MIN_TABLE_ROW_HEIGHT = 36;
 
 const makeId = () => crypto.randomUUID();
 let lastDeletionSnapshot: UndoSnapshot | null = null;
@@ -113,9 +130,54 @@ function normalizeCardDetailsText(value: string) {
   return normalizeDraftText(value).trim();
 }
 
+function normalizeDetailsTable(value: DetailsTable | null | undefined): DetailsTable | null {
+  if (!value || !Array.isArray(value.cells) || value.cells.length === 0) {
+    return null;
+  }
+
+  const columnCount = Math.max(1, ...value.cells.map((row) => (Array.isArray(row) ? row.length : 0)));
+  const cells = value.cells.map((row) =>
+    Array.from({ length: columnCount }, (_, index) =>
+      Array.isArray(row) && typeof row[index] === "string" ? row[index] : "",
+    ),
+  );
+
+  return {
+    cells,
+    columnWidths: Array.from({ length: columnCount }, (_, index) =>
+      clampTableSize(value.columnWidths?.[index], MIN_TABLE_COLUMN_WIDTH, DEFAULT_TABLE_COLUMN_WIDTH),
+    ),
+    rowHeights: Array.from({ length: cells.length }, (_, index) =>
+      clampTableSize(value.rowHeights?.[index], MIN_TABLE_ROW_HEIGHT, DEFAULT_TABLE_ROW_HEIGHT),
+    ),
+    insertedAfterText: value.insertedAfterText !== false,
+  };
+}
+
+function clampTableSize(value: number | undefined, min: number, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.round(value)) : fallback;
+}
+
+function createDefaultDetailsTable(): DetailsTable {
+  return {
+    cells: [[""]],
+    columnWidths: [DEFAULT_TABLE_COLUMN_WIDTH],
+    rowHeights: [DEFAULT_TABLE_ROW_HEIGHT],
+    insertedAfterText: true,
+  };
+}
+
 function cloneCard(card: QuestionCard): QuestionCard {
   return {
     ...card,
+    detailsTable: card.detailsTable
+      ? {
+          cells: card.detailsTable.cells.map((row) => [...row]),
+          columnWidths: [...card.detailsTable.columnWidths],
+          rowHeights: [...card.detailsTable.rowHeights],
+          insertedAfterText: card.detailsTable.insertedAfterText,
+        }
+      : null,
     position: { ...card.position },
     size: card.size ? { ...card.size } : undefined,
     image: card.image
@@ -262,6 +324,7 @@ function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
         ...card,
         text: normalizeCardText(card.text ?? ""),
         detailsText: normalizeCardDetailsText(card.detailsText ?? ""),
+        detailsTable: normalizeDetailsTable(card.detailsTable),
         position: {
           x: Number.isFinite(card.position?.x) ? card.position.x : AUTO_LAYOUT_PADDING,
           y: Number.isFinite(card.position?.y) ? card.position.y : AUTO_LAYOUT_PADDING,
@@ -296,7 +359,7 @@ function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
     snapshot.selectedCardId && cards[snapshot.selectedCardId] ? snapshot.selectedCardId : null;
 
   return {
-    version: 2,
+    version: 3,
     cards,
     selectedCardId,
     draftText: normalizeDraftText(snapshot.draftText ?? ""),
@@ -327,6 +390,7 @@ function collectSearchResults(cards: Record<string, QuestionCard>, query: string
 function createPersistedCard(card: QuestionCard): QuestionCard {
   return {
     ...card,
+    detailsTable: normalizeDetailsTable(card.detailsTable),
     position: { ...card.position },
     image: card.image
       ? {
@@ -443,6 +507,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       id,
       text: normalizedText,
       detailsText: "",
+      detailsTable: null,
       image: state.draftImage
         ? {
             path: buildImageAssetPath(id, state.draftImage.mimeType),
@@ -503,6 +568,227 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         [cardId]: {
           ...card,
           detailsText: normalizedDetailsText,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  ensureDetailsTable: (cardId) => {
+    const { cards } = get();
+    const card = cards[cardId];
+
+    if (!card || card.detailsTable) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTable: createDefaultDetailsTable(),
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  addDetailsTableRow: (cardId) => {
+    const { cards } = get();
+    const card = cards[cardId];
+
+    if (!card) {
+      return;
+    }
+
+    const table = normalizeDetailsTable(card.detailsTable) ?? createDefaultDetailsTable();
+    const columnCount = table.columnWidths.length;
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTable: {
+            ...table,
+            cells: [...table.cells, Array.from({ length: columnCount }, () => "")],
+            rowHeights: [...table.rowHeights, DEFAULT_TABLE_ROW_HEIGHT],
+          },
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  addDetailsTableColumn: (cardId) => {
+    const { cards } = get();
+    const card = cards[cardId];
+
+    if (!card) {
+      return;
+    }
+
+    const table = normalizeDetailsTable(card.detailsTable) ?? createDefaultDetailsTable();
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTable: {
+            ...table,
+            cells: table.cells.map((row) => [...row, ""]),
+            columnWidths: [...table.columnWidths, DEFAULT_TABLE_COLUMN_WIDTH],
+          },
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  setDetailsTableFromCells: (cardId, cells) => {
+    const { cards } = get();
+    const card = cards[cardId];
+
+    if (!card || cells.length === 0) {
+      return;
+    }
+
+    const columnCount = Math.max(1, ...cells.map((row) => row.length));
+    const normalizedCells = cells.map((row) =>
+      Array.from({ length: columnCount }, (_, index) => normalizeDraftText(row[index] ?? "")),
+    );
+    const currentTable = normalizeDetailsTable(card.detailsTable);
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTable: {
+            cells: normalizedCells,
+            columnWidths: Array.from({ length: columnCount }, (_, index) =>
+              clampTableSize(
+                currentTable?.columnWidths[index],
+                MIN_TABLE_COLUMN_WIDTH,
+                DEFAULT_TABLE_COLUMN_WIDTH,
+              ),
+            ),
+            rowHeights: Array.from({ length: normalizedCells.length }, (_, index) =>
+              clampTableSize(
+                currentTable?.rowHeights[index],
+                MIN_TABLE_ROW_HEIGHT,
+                DEFAULT_TABLE_ROW_HEIGHT,
+              ),
+            ),
+            insertedAfterText: true,
+          },
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  updateDetailsTableCell: (cardId, rowIndex, columnIndex, value) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const table = normalizeDetailsTable(card?.detailsTable);
+
+    if (!card || !table?.cells[rowIndex] || table.cells[rowIndex][columnIndex] === undefined) {
+      return;
+    }
+
+    if (table.cells[rowIndex][columnIndex] === value) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const cells = table.cells.map((row) => [...row]);
+    cells[rowIndex][columnIndex] = normalizeDraftText(value);
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTable: {
+            ...table,
+            cells,
+          },
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  resizeDetailsTableColumn: (cardId, columnIndex, width) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const table = normalizeDetailsTable(card?.detailsTable);
+
+    if (!card || !table || table.columnWidths[columnIndex] === undefined) {
+      return;
+    }
+
+    const nextWidth = clampTableSize(width, MIN_TABLE_COLUMN_WIDTH, DEFAULT_TABLE_COLUMN_WIDTH);
+
+    if (table.columnWidths[columnIndex] === nextWidth) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const columnWidths = [...table.columnWidths];
+    columnWidths[columnIndex] = nextWidth;
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTable: {
+            ...table,
+            columnWidths,
+          },
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  resizeDetailsTableRow: (cardId, rowIndex, height) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const table = normalizeDetailsTable(card?.detailsTable);
+
+    if (!card || !table || table.rowHeights[rowIndex] === undefined) {
+      return;
+    }
+
+    const nextHeight = clampTableSize(height, MIN_TABLE_ROW_HEIGHT, DEFAULT_TABLE_ROW_HEIGHT);
+
+    if (table.rowHeights[rowIndex] === nextHeight) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const rowHeights = [...table.rowHeights];
+    rowHeights[rowIndex] = nextHeight;
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTable: {
+            ...table,
+            rowHeights,
+          },
           updatedAt: snapshotUpdatedAt,
         },
       },
@@ -704,7 +990,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     const { cards, selectedCardId, draftText } = get();
 
     return {
-      version: 2,
+      version: 3,
       cards: Object.fromEntries(
         Object.entries(cards).map(([cardId, card]) => [cardId, createPersistedCard(card)]),
       ),

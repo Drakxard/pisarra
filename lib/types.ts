@@ -18,10 +18,18 @@ export type QuestionCardImage = {
   pendingBlob?: Blob | null;
 };
 
+export type DetailsTable = {
+  cells: string[][];
+  columnWidths: number[];
+  rowHeights: number[];
+  insertedAfterText: boolean;
+};
+
 export type QuestionCard = {
   id: string;
   text: string;
   detailsText: string;
+  detailsTable?: DetailsTable | null;
   image: QuestionCardImage | null;
   position: CardPosition;
   size?: CardSize;
@@ -45,7 +53,7 @@ export type DraftState = {
 };
 
 export type ProjectSnapshot = {
-  version: 2;
+  version: 3;
   cards: Record<string, QuestionCard>;
   selectedCardId: string | null;
   draftText: string;

@@ -34,6 +34,7 @@ import {
 import { useTreeStore } from "@/lib/tree-store";
 import type {
   CardSize,
+  DetailsTable,
   DraftImage,
   QuestionCard,
   SearchResult,
@@ -51,6 +52,8 @@ const START_DETAILS_EDIT_EVENT = "study-tree:start-details-edit";
 const EDGE_PAN_MARGIN = 72;
 const EDGE_PAN_MAX_STEP = 18;
 const CLOSE_HOLD_DELETE_MS = 800;
+const MIN_TABLE_COLUMN_WIDTH = 72;
+const MIN_TABLE_ROW_HEIGHT = 36;
 
 type StageSize = {
   width: number;
@@ -78,6 +81,20 @@ type PanState = {
   originX: number;
   originY: number;
 };
+
+type TableResizeState =
+  | {
+      type: "column";
+      index: number;
+      startClientX: number;
+      startSize: number;
+    }
+  | {
+      type: "row";
+      index: number;
+      startClientY: number;
+      startSize: number;
+    };
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -171,6 +188,22 @@ function renderParagraph(children?: React.ReactNode) {
 
 function preserveSingleLineBreaks(text: string) {
   return text.replace(/\r\n?/g, "\n").replace(/(?<!\n)\n(?!\n)/g, "  \n");
+}
+
+function parseClipboardTable(text: string) {
+  const normalizedText = text.replace(/\r\n?/g, "\n").replace(/\n$/, "");
+
+  if (!normalizedText.includes("\t")) {
+    return null;
+  }
+
+  const rows = normalizedText.split("\n").map((row) => row.split("\t"));
+
+  if (rows.length === 0 || rows.every((row) => row.every((cell) => cell.trim().length === 0))) {
+    return null;
+  }
+
+  return rows;
 }
 
 const markdownComponents = {
@@ -284,17 +317,24 @@ const CardDetailsEditor = memo(function CardDetailsEditor({
   cardId,
   text,
   onSave,
+  onStartTyping,
+  onPasteTable,
 }: {
   cardId: string;
   text: string;
   onSave: (cardId: string, text: string) => void;
+  onStartTyping?: () => void;
+  onPasteTable?: (cells: string[][]) => void;
 }) {
   const [draft, setDraft] = useState(text);
   const [isEditing, setIsEditing] = useState(text.trim().length === 0);
   const editableRef = useRef<HTMLDivElement | null>(null);
   const pendingInsertionRef = useRef<string | null>(null);
   const pendingCaretPointRef = useRef<{ x: number; y: number } | null>(null);
-  const shouldAutoScrollRef = useRef(text.trim().length === 0);
+  const pendingScrollTopRef = useRef<number | null>(null);
+  const pendingEditReasonRef = useRef<"click" | "keyboard" | "initial">(
+    text.trim().length === 0 ? "initial" : "click",
+  );
 
   useEffect(() => {
     setDraft(text);
@@ -303,60 +343,77 @@ const CardDetailsEditor = memo(function CardDetailsEditor({
     }
   }, [isEditing, text]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isEditing || !editableRef.current) {
       return;
     }
 
-    if (shouldAutoScrollRef.current) {
-      const overlay = editableRef.current.closest(".card-modal-overlay");
+    const editor = editableRef.current;
+    const overlay = editor.closest(".card-modal-overlay");
+    const editReason = pendingEditReasonRef.current;
+    const shouldAutoScroll = editReason === "keyboard" || editReason === "initial";
 
+    if (editor.innerText !== draft) {
+      editor.innerText = draft;
+    }
+
+    if (shouldAutoScroll) {
       if (overlay instanceof HTMLElement) {
         overlay.scrollTo({
           top: overlay.scrollHeight,
           behavior: "smooth",
         });
       } else {
-        editableRef.current.scrollIntoView({
+        editor.scrollIntoView({
           block: "end",
           behavior: "smooth",
         });
       }
     }
 
-    editableRef.current.focus();
+    editor.focus({ preventScroll: true });
 
     const pendingCaretPoint = pendingCaretPointRef.current;
     pendingCaretPointRef.current = null;
 
     if (pendingCaretPoint) {
       const placed = placeCursorAtPoint(
-        editableRef.current,
+        editor,
         pendingCaretPoint.x,
         pendingCaretPoint.y,
       );
 
       if (!placed) {
-        placeCursorAtEnd(editableRef.current);
+        placeCursorAtEnd(editor);
       }
     } else {
-      placeCursorAtEnd(editableRef.current);
+      placeCursorAtEnd(editor);
     }
 
     if (pendingInsertionRef.current) {
       insertPlainTextAtCursor(pendingInsertionRef.current);
       pendingInsertionRef.current = null;
-      setDraft(editableRef.current.innerText ?? "");
+      setDraft(editor.innerText ?? "");
     }
 
-    shouldAutoScrollRef.current = false;
-  }, [cardId, isEditing]);
+    if (
+      editReason === "click" &&
+      pendingScrollTopRef.current !== null &&
+      overlay instanceof HTMLElement
+    ) {
+      overlay.scrollTop = pendingScrollTopRef.current;
+    }
+
+    pendingScrollTopRef.current = null;
+  }, [cardId, draft, isEditing]);
 
   useEffect(() => {
     const onStartEditing = (event: Event) => {
       const customEvent = event as CustomEvent<{ text?: string }>;
       pendingInsertionRef.current = customEvent.detail?.text ?? null;
-      shouldAutoScrollRef.current = true;
+      pendingCaretPointRef.current = null;
+      pendingScrollTopRef.current = null;
+      pendingEditReasonRef.current = "keyboard";
       setIsEditing(true);
     };
 
@@ -380,7 +437,6 @@ const CardDetailsEditor = memo(function CardDetailsEditor({
     }
 
     const nextDraft = event.currentTarget.innerText ?? "";
-    event.currentTarget.innerHTML = "";
     setIsEditing(false);
     persistDraft(nextDraft);
   };
@@ -396,11 +452,20 @@ const CardDetailsEditor = memo(function CardDetailsEditor({
           role="textbox"
           aria-multiline="true"
           onInput={(event) => {
+            onStartTyping?.();
             setDraft(event.currentTarget.innerText ?? "");
           }}
           onBlur={onBlur}
           onPaste={(event: ReactClipboardEvent<HTMLDivElement>) => {
             event.preventDefault();
+            const tableCells = parseClipboardTable(event.clipboardData.getData("text/plain"));
+
+            if (tableCells) {
+              onPasteTable?.(tableCells);
+              return;
+            }
+
+            onStartTyping?.();
             insertPlainTextAtCursor(event.clipboardData.getData("text/plain"));
           }}
         />
@@ -410,17 +475,20 @@ const CardDetailsEditor = memo(function CardDetailsEditor({
           role="button"
           tabIndex={0}
           onClick={(event: ReactMouseEvent<HTMLDivElement>) => {
+            const overlay = event.currentTarget.closest(".card-modal-overlay");
+
             pendingCaretPointRef.current = {
               x: event.clientX,
               y: event.clientY,
             };
-            shouldAutoScrollRef.current = false;
+            pendingScrollTopRef.current = overlay instanceof HTMLElement ? overlay.scrollTop : null;
+            pendingEditReasonRef.current = "click";
             setIsEditing(true);
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              shouldAutoScrollRef.current = false;
+              pendingEditReasonRef.current = "click";
               setIsEditing(true);
             }
           }}
@@ -430,6 +498,149 @@ const CardDetailsEditor = memo(function CardDetailsEditor({
         </div>
       )}
     </section>
+  );
+});
+
+const DetailsTableEditor = memo(function DetailsTableEditor({
+  cardId,
+  table,
+  onUpdateCell,
+  onResizeColumn,
+  onResizeRow,
+  onPasteTable,
+  onStartTyping,
+}: {
+  cardId: string;
+  table: DetailsTable;
+  onUpdateCell: (cardId: string, rowIndex: number, columnIndex: number, value: string) => void;
+  onResizeColumn: (cardId: string, columnIndex: number, width: number) => void;
+  onResizeRow: (cardId: string, rowIndex: number, height: number) => void;
+  onPasteTable: (cells: string[][]) => void;
+  onStartTyping: () => void;
+}) {
+  const resizeStateRef = useRef<TableResizeState | null>(null);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const resizeState = resizeStateRef.current;
+
+      if (!resizeState) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (resizeState.type === "column") {
+        onResizeColumn(
+          cardId,
+          resizeState.index,
+          Math.max(
+            MIN_TABLE_COLUMN_WIDTH,
+            resizeState.startSize + event.clientX - resizeState.startClientX,
+          ),
+        );
+        return;
+      }
+
+      onResizeRow(
+        cardId,
+        resizeState.index,
+        Math.max(
+          MIN_TABLE_ROW_HEIGHT,
+          resizeState.startSize + event.clientY - resizeState.startClientY,
+        ),
+      );
+    };
+
+    const onPointerUp = () => {
+      resizeStateRef.current = null;
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, [cardId, onResizeColumn, onResizeRow]);
+
+  return (
+    <div
+      className="details-table"
+      style={{
+        gridTemplateColumns: table.columnWidths.map((width) => `${width}px`).join(" "),
+      }}
+    >
+      {table.cells.map((row, rowIndex) =>
+        row.map((cell, columnIndex) => (
+          <div
+            key={`${rowIndex}-${columnIndex}`}
+            className="details-table-cell"
+            style={{
+              minHeight: `${table.rowHeights[rowIndex] ?? MIN_TABLE_ROW_HEIGHT}px`,
+            }}
+          >
+            <textarea
+              className="details-table-input"
+              value={cell}
+              onFocus={onStartTyping}
+              onInput={onStartTyping}
+              onChange={(event) => {
+                onUpdateCell(cardId, rowIndex, columnIndex, event.currentTarget.value);
+              }}
+              onPaste={(event) => {
+                const tableCells = parseClipboardTable(event.clipboardData.getData("text/plain"));
+
+                if (!tableCells) {
+                  return;
+                }
+
+                event.preventDefault();
+                onPasteTable(tableCells);
+              }}
+              aria-label={`Celda ${rowIndex + 1}, ${columnIndex + 1}`}
+            />
+            {columnIndex < table.columnWidths.length - 1 ? (
+              <span
+                className="details-table-column-resizer"
+                role="separator"
+                aria-orientation="vertical"
+                onPointerDown={(event: ReactPointerEvent<HTMLSpanElement>) => {
+                  event.preventDefault();
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                  resizeStateRef.current = {
+                    type: "column",
+                    index: columnIndex,
+                    startClientX: event.clientX,
+                    startSize: table.columnWidths[columnIndex],
+                  };
+                }}
+              />
+            ) : null}
+            {rowIndex < table.cells.length - 1 ? (
+              <span
+                className="details-table-row-resizer"
+                role="separator"
+                aria-orientation="horizontal"
+                onPointerDown={(event: ReactPointerEvent<HTMLSpanElement>) => {
+                  event.preventDefault();
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                  resizeStateRef.current = {
+                    type: "row",
+                    index: rowIndex,
+                    startClientY: event.clientY,
+                    startSize: table.rowHeights[rowIndex],
+                  };
+                }}
+              />
+            ) : null}
+          </div>
+        )),
+      )}
+    </div>
   );
 });
 
@@ -660,6 +871,13 @@ export function StudyTreeApp() {
     clearDraftImage,
     confirmDraft,
     updateCardDetails,
+    ensureDetailsTable,
+    addDetailsTableRow,
+    addDetailsTableColumn,
+    setDetailsTableFromCells,
+    updateDetailsTableCell,
+    resizeDetailsTableColumn,
+    resizeDetailsTableRow,
     selectCard,
     openCard,
     closeCard,
@@ -711,6 +929,7 @@ export function StudyTreeApp() {
   const [showUndoToast, setShowUndoToast] = useState(false);
   const [showSearchFeedback, setShowSearchFeedback] = useState(false);
   const [showPasteFeedback, setShowPasteFeedback] = useState(false);
+  const [showTableMenu, setShowTableMenu] = useState(false);
   const [canUseProjectDirectory, setCanUseProjectDirectory] = useState(false);
   const [hasResolvedDirectorySupport, setHasResolvedDirectorySupport] = useState(false);
 
@@ -937,7 +1156,7 @@ export function StudyTreeApp() {
       return;
     }
 
-    if (event.defaultPrevented || isEditableTarget(event.target)) {
+    if (event.defaultPrevented) {
       return;
     }
 
@@ -948,6 +1167,22 @@ export function StudyTreeApp() {
     }
 
     const pastedText = clipboardData.getData("text");
+
+    if (openedCardId && pastedText) {
+      const tableCells = parseClipboardTable(pastedText);
+
+      if (tableCells) {
+        event.preventDefault();
+        setDetailsTableFromCells(openedCardId, tableCells);
+        setShowTableMenu(false);
+        return;
+      }
+    }
+
+    if (isEditableTarget(event.target)) {
+      return;
+    }
+
     const imageItem = Array.from(clipboardData.items).find(
       (item) => item.kind === "file" && item.type.startsWith("image/"),
     );
@@ -1226,6 +1461,34 @@ export function StudyTreeApp() {
       window.clearTimeout(timeoutId);
     };
   }, [clearPasteFeedback, pasteFeedback, pasteFeedbackVersion]);
+
+  useEffect(() => {
+    if (!isModalOpen) {
+      setShowTableMenu(false);
+    }
+  }, [isModalOpen]);
+
+  useEffect(() => {
+    if (!showTableMenu) {
+      return;
+    }
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+
+      if (target?.closest(".details-table-controls")) {
+        return;
+      }
+
+      setShowTableMenu(false);
+    };
+
+    window.addEventListener("pointerdown", onPointerDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [showTableMenu]);
 
   useEffect(() => {
     if (!activeSearchResult) {
@@ -1559,7 +1822,68 @@ export function StudyTreeApp() {
                   cardId={openedCard.id}
                   text={openedCard.detailsText}
                   onSave={updateCardDetails}
+                  onStartTyping={() => {
+                    setShowTableMenu(false);
+                  }}
+                  onPasteTable={(cells) => {
+                    setDetailsTableFromCells(openedCard.id, cells);
+                    setShowTableMenu(false);
+                  }}
                 />
+                {openedCard.detailsTable ? (
+                  <DetailsTableEditor
+                    cardId={openedCard.id}
+                    table={openedCard.detailsTable}
+                    onUpdateCell={updateDetailsTableCell}
+                    onResizeColumn={resizeDetailsTableColumn}
+                    onResizeRow={resizeDetailsTableRow}
+                    onPasteTable={(cells) => {
+                      setDetailsTableFromCells(openedCard.id, cells);
+                      setShowTableMenu(false);
+                    }}
+                    onStartTyping={() => {
+                      setShowTableMenu(false);
+                    }}
+                  />
+                ) : null}
+              </div>
+              <div className="details-table-controls">
+                {showTableMenu ? (
+                  <div className="details-table-menu" aria-label="Acciones de tabla">
+                    <button
+                      type="button"
+                      className="details-table-menu-button"
+                      onClick={() => {
+                        addDetailsTableRow(openedCard.id);
+                        setShowTableMenu(false);
+                      }}
+                    >
+                      + fila
+                    </button>
+                    <button
+                      type="button"
+                      className="details-table-menu-button"
+                      onClick={() => {
+                        addDetailsTableColumn(openedCard.id);
+                        setShowTableMenu(false);
+                      }}
+                    >
+                      + columna
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="details-table-fab"
+                  aria-expanded={showTableMenu}
+                  aria-label="Agregar fila o columna"
+                  onClick={() => {
+                    ensureDetailsTable(openedCard.id);
+                    setShowTableMenu((currentValue) => !currentValue);
+                  }}
+                >
+                  +
+                </button>
               </div>
             </div>
           </div>

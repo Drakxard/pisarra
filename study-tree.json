@@ -27,7 +27,7 @@
     "8ef54f07-07f0-4d55-aa07-c4f97939c0a6": {
       "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
       "text": "Sabado",
-      "detailsText": "Enfocarse\n\n-- Cursado--\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica: aprenderlo bien, lunes repaso\nLógica: Parcial\nProb: Planera proy final, muestra parcial\n--\n--Mesas--\nÁlgebra y Cálculo 2: Debería, tener un \"cronograma tentativo\", faltan 8 semanas/2 meses",
+      "detailsText": "Enfocarse\n\n-- Cursado--\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica: aprenderlo bien, lunes repaso\nLógica: Parcial\nProb: Planera proy final, muestra parcial\n--\n--Mesas--\nÁlgebra y Cálculo 2: Debería, tener un \"cronograma tentativo\", faltan 8 semanas/2 meses\n\n\nMientras lo veo, debo ir recolectando lo que podria complicarse, texto sutil",
       "image": null,
       "position": {
         "x": 465,
@@ -35,7 +35,7 @@
       },
       "zIndex": 57,
       "createdAt": "2026-05-02T19:14:11.647Z",
-      "updatedAt": "2026-05-02T19:21:49.248Z",
+      "updatedAt": "2026-05-02T19:42:08.937Z",
       "size": {
         "width": 384,
         "height": 58
@@ -44,5 +44,5 @@
   },
   "selectedCardId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
   "draftText": "",
-  "savedAt": "2026-05-02T19:21:49.248Z"
+  "savedAt": "2026-05-02T19:42:08.937Z"
 }

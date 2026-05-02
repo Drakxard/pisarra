@@ -1,6 +1,6 @@
 "use client";
 
-import type { PendingImageAsset, ProjectSnapshot } from "@/lib/types";
+import type { DetailsTable, PendingImageAsset, ProjectSnapshot } from "@/lib/types";
 
 const DB_NAME = "study-tree-projects";
 const DB_VERSION = 3;
@@ -12,6 +12,9 @@ const PROJECT_FILE_NAME = "study-tree.json";
 const ASSETS_DIRECTORY_NAME = "study-assets";
 
 type FileSystemPermissionMode = "read" | "readwrite";
+type RawProjectSnapshot = Partial<Omit<ProjectSnapshot, "version">> & {
+  version?: number;
+};
 
 export class IncompatibleProjectVersionError extends Error {
   version: number | null;
@@ -242,15 +245,51 @@ async function readImageAsset(handle: FileSystemDirectoryHandle, relativePath: s
   }
 }
 
-function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
+function normalizeDetailsTable(value: unknown): DetailsTable | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const table = value as Partial<DetailsTable>;
+  const cells = Array.isArray(table.cells)
+    ? table.cells.map((row) =>
+        Array.isArray(row) ? row.map((cell) => (typeof cell === "string" ? cell : "")) : [],
+      )
+    : [];
+
+  if (cells.length === 0) {
+    return null;
+  }
+
+  const columnCount = Math.max(1, ...cells.map((row) => row.length));
+  const normalizedCells = cells.map((row) =>
+    Array.from({ length: columnCount }, (_, index) => row[index] ?? ""),
+  );
+
   return {
-    version: 2,
+    cells: normalizedCells,
+    columnWidths: Array.from({ length: columnCount }, (_, index) => {
+      const width = table.columnWidths?.[index];
+      return typeof width === "number" && Number.isFinite(width) && width >= 72 ? width : 160;
+    }),
+    rowHeights: Array.from({ length: normalizedCells.length }, (_, index) => {
+      const height = table.rowHeights?.[index];
+      return typeof height === "number" && Number.isFinite(height) && height >= 36 ? height : 48;
+    }),
+    insertedAfterText: table.insertedAfterText !== false,
+  };
+}
+
+function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot {
+  return {
+    version: 3,
     cards: Object.fromEntries(
       Object.entries(snapshot.cards ?? {}).map(([cardId, card]) => [
         cardId,
         {
           ...card,
           detailsText: typeof card.detailsText === "string" ? card.detailsText : "",
+          detailsTable: normalizeDetailsTable(card.detailsTable),
         },
       ]),
     ),
@@ -355,21 +394,21 @@ export async function readProjectSnapshot(handle: FileSystemDirectoryHandle) {
       throw new EmptyProjectFileError();
     }
 
-    let parsed: Partial<ProjectSnapshot> & { version?: number };
+    let parsed: RawProjectSnapshot;
 
     try {
-      parsed = JSON.parse(raw) as Partial<ProjectSnapshot> & { version?: number };
+      parsed = JSON.parse(raw) as RawProjectSnapshot;
     } catch (error) {
       throw new InvalidProjectFileError(error);
     }
 
-    if (parsed.version !== 2) {
+    if (parsed.version !== 2 && parsed.version !== 3) {
       throw new IncompatibleProjectVersionError(
         typeof parsed.version === "number" ? parsed.version : null,
       );
     }
 
-    return normalizeProjectSnapshot(parsed as ProjectSnapshot);
+    return normalizeProjectSnapshot(parsed);
   } catch (error) {
     if (
       error instanceof DOMException &&
