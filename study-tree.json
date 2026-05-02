@@ -1,0 +1,82 @@
+{
+  "version": 2,
+  "cards": {
+    "baf12a81-0ba1-4041-b738-38cb2cf06398": {
+      "id": "baf12a81-0ba1-4041-b738-38cb2cf06398",
+      "text": "ygy",
+      "detailsText": "sfafs \nfasf",
+      "image": null,
+      "position": {
+        "x": 47,
+        "y": 82
+      },
+      "zIndex": 19,
+      "createdAt": "2026-04-30T15:10:28.625Z",
+      "updatedAt": "2026-04-30T15:13:49.965Z",
+      "size": {
+        "width": 384,
+        "height": 58
+      }
+    },
+    "3da147da-5c7e-4f2d-9cb1-4df3504a4260": {
+      "id": "3da147da-5c7e-4f2d-9cb1-4df3504a4260",
+      "text": "l",
+      "detailsText": "",
+      "image": null,
+      "position": {
+        "x": 493,
+        "y": 196
+      },
+      "zIndex": 17,
+      "createdAt": "2026-04-30T15:10:29.992Z",
+      "updatedAt": "2026-04-30T15:14:38.777Z",
+      "size": {
+        "width": 384,
+        "height": 58
+      }
+    },
+    "796fc6f9-4e8b-4d96-beab-d4c3b7e8f070": {
+      "id": "796fc6f9-4e8b-4d96-beab-d4c3b7e8f070",
+      "text": "ytrhththfgfgffgd",
+      "detailsText": "",
+      "image": null,
+      "position": {
+        "x": 752,
+        "y": 130
+      },
+      "zIndex": 14,
+      "createdAt": "2026-04-30T15:13:46.193Z",
+      "updatedAt": "2026-04-30T15:14:29.329Z",
+      "size": {
+        "width": 384,
+        "height": 58
+      }
+    },
+    "12f4d6b9-bfe2-451a-8791-6a1e86569d96": {
+      "id": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
+      "text": "ejemplo",
+      "detailsText": "La integral definida de $y = x$ evaluada desde $1$ hasta $2$ es **$1.5$** (o $\\frac{3}{2}$).\n\nAquí tienes el desarrollo paso a paso:\n\n1. **Encontrar la antiderivada:** La integral indefinida de $x$ es $\\frac{x^2}{2}$.\n2. **Evaluar los límites (Regla de Barrow):** Aplicamos los límites de integración de $1$ a $2$:\n   $$ \\int_{1}^{2} x \\, dx = \\left[ \\frac{x^2}{2} \\right]_{1}^{2} $$\n3. **Calcular la diferencia:**\n   $$ \\left( \\frac{2^2}{2} \\right) - \\left( \\frac{1^2}{2} \\right) = \\frac{4}{2} - \\frac{1}{2} = 2 - 0.5 = 1.5 $$\n\nVisualmente, este resultado representa el área exacta del trapecio que se forma bajo la recta $y = x$ entre los puntos $x = 1$ y $x = 2$. Es un cálculo ideal y rápido para ir calentando motores antes de meterse con temas de cálculo más pesados, como gradientes o longitud de arco.llcccc\nc\nc\nc\ncdccccecsdddseddse\nentonces",
+      "image": {
+        "path": "study-assets/12f4d6b9-bfe2-451a-8791-6a1e86569d96.png",
+        "mimeType": "image/png",
+        "name": "image.png",
+        "width": 1366,
+        "height": 768
+      },
+      "position": {
+        "x": 32,
+        "y": 275
+      },
+      "zIndex": 32,
+      "createdAt": "2026-04-30T15:15:54.109Z",
+      "updatedAt": "2026-04-30T15:29:20.626Z",
+      "size": {
+        "width": 384,
+        "height": 262
+      }
+    }
+  },
+  "selectedCardId": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
+  "draftText": "eeeededs",
+  "savedAt": "2026-04-30T15:29:20.626Z"
+}
