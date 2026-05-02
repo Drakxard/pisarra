@@ -33,6 +33,7 @@ import type {
   DraftImage,
   QuestionCard,
   SearchResult,
+  StudyCategory,
 } from "@/lib/types";
 
 const DEFAULT_STAGE_WIDTH = 1400;
@@ -685,6 +686,123 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
   );
 });
 
+const CategoryHome = memo(function CategoryHome({
+  categories,
+  selectedCategoryId,
+  categoryDraftText,
+  renamingCategoryId,
+  renameDraft,
+  onSelect,
+  onOpen,
+  onStartRename,
+  onRenameDraft,
+  onConfirmRename,
+  onCancelRename,
+}: {
+  categories: StudyCategory[];
+  selectedCategoryId: string | null;
+  categoryDraftText: string;
+  renamingCategoryId: string | null;
+  renameDraft: string;
+  onSelect: (categoryId: string | null) => void;
+  onOpen: (categoryId: string) => void;
+  onStartRename: (category: StudyCategory) => void;
+  onRenameDraft: (value: string) => void;
+  onConfirmRename: () => void;
+  onCancelRename: () => void;
+}) {
+  const holdTimeoutRef = useRef<number | null>(null);
+  const didHoldRef = useRef(false);
+
+  const clearHoldTimer = () => {
+    if (holdTimeoutRef.current !== null) {
+      window.clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+  };
+
+  useEffect(() => clearHoldTimer, []);
+
+  return (
+    <div className="category-home" aria-label="Categorias">
+      <div className="question-stage-backdrop" />
+      <div className="category-grid">
+        {categories.map((category) => {
+          const isSelected = selectedCategoryId === category.id;
+          const isRenaming = renamingCategoryId === category.id;
+
+          return (
+            <button
+              key={category.id}
+              type="button"
+              className={`category-orb ${isSelected ? "is-selected" : ""}`}
+              onClick={() => {
+                if (didHoldRef.current) {
+                  didHoldRef.current = false;
+                  return;
+                }
+
+                if (!isRenaming) {
+                  onOpen(category.id);
+                }
+              }}
+              onPointerDown={() => {
+                onSelect(category.id);
+                didHoldRef.current = false;
+                clearHoldTimer();
+                holdTimeoutRef.current = window.setTimeout(() => {
+                  holdTimeoutRef.current = null;
+                  didHoldRef.current = true;
+                  onStartRename(category);
+                }, CLOSE_HOLD_DELETE_MS);
+              }}
+              onPointerUp={clearHoldTimer}
+              onPointerCancel={clearHoldTimer}
+              onPointerLeave={clearHoldTimer}
+            >
+              {isRenaming ? (
+                <input
+                  className="category-rename-input"
+                  value={renameDraft}
+                  autoFocus
+                  onChange={(event) => onRenameDraft(event.currentTarget.value)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      onConfirmRename();
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      onCancelRename();
+                    }
+                  }}
+                />
+              ) : (
+                <span>{category.name}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {categoryDraftText ? (
+        <div className="draft-composer-shell" aria-live="polite">
+          <div className="draft-composer">
+            <div className="draft-copy">
+              <NodeLabel text={categoryDraftText} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+});
+
 const CardContent = memo(function CardContent({
   card,
   mode,
@@ -893,6 +1011,10 @@ async function hasDirectoryReadWriteAccess(handle: FileSystemDirectoryHandle) {
 
 export function StudyTreeApp() {
   const {
+    categories,
+    activeCategoryId,
+    selectedCategoryId,
+    categoryDraftText,
     cards,
     selectedCardId,
     openedCardId,
@@ -904,6 +1026,15 @@ export function StudyTreeApp() {
     searchFeedback,
     pasteFeedback,
     pasteFeedbackVersion,
+    createCategory,
+    renameCategory,
+    selectCategory,
+    openCategory,
+    closeCategory,
+    appendCategoryDraftCharacter,
+    backspaceCategoryDraft,
+    clearCategoryDraft,
+    confirmCategoryDraft,
     appendDraftCharacter,
     appendDraftText,
     attachDraftImage,
@@ -946,6 +1077,9 @@ export function StudyTreeApp() {
   const pendingImageAssets = getPendingImageAssets();
   const projectSignature = JSON.stringify(getProjectSnapshot());
   const pendingAssetSignature = pendingImageAssets.map((asset) => asset.path).join("\u0000");
+  const categoriesList = Object.values(categories).sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
   const cardsList = Object.values(cards).sort((left, right) => left.zIndex - right.zIndex);
   const activeSearchResult: SearchResult | null =
     activeSearchResultIndex >= 0 ? searchResults[activeSearchResultIndex] ?? null : null;
@@ -976,6 +1110,8 @@ export function StudyTreeApp() {
   const [showPasteFeedback, setShowPasteFeedback] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
   const [selectedDetailsImageId, setSelectedDetailsImageId] = useState<string | null>(null);
+  const [renamingCategoryId, setRenamingCategoryId] = useState<string | null>(null);
+  const [categoryRenameDraft, setCategoryRenameDraft] = useState("");
   const [canUseProjectDirectory, setCanUseProjectDirectory] = useState(false);
   const [hasResolvedDirectorySupport, setHasResolvedDirectorySupport] = useState(false);
 
@@ -1105,6 +1241,18 @@ export function StudyTreeApp() {
 
       const activeElement = document.activeElement as HTMLElement | null;
 
+      if (!activeCategoryId) {
+        if (renamingCategoryId) {
+          setRenamingCategoryId(null);
+          setCategoryRenameDraft("");
+          return;
+        }
+
+        clearCategoryDraft();
+        selectCategory(null);
+        return;
+      }
+
       if (activeElement?.isContentEditable) {
         activeElement.blur();
         return;
@@ -1115,12 +1263,73 @@ export function StudyTreeApp() {
         return;
       }
 
-      selectCard(null);
-      clearSearchState();
+      if (selectedCardId || searchResults.length > 0) {
+        selectCard(null);
+        clearSearchState();
+        return;
+      }
+
+      closeCategory();
       return;
     }
 
     if (isEditableTarget(event.target)) {
+      return;
+    }
+
+    if (!activeCategoryId) {
+      if (renamingCategoryId) {
+        return;
+      }
+
+      if (
+        event.key === "ArrowLeft" ||
+        event.key === "ArrowRight" ||
+        event.key === "ArrowUp" ||
+        event.key === "ArrowDown"
+      ) {
+        event.preventDefault();
+
+        if (categoriesList.length === 0) {
+          return;
+        }
+
+        const currentIndex = Math.max(
+          0,
+          categoriesList.findIndex((category) => category.id === selectedCategoryId),
+        );
+        const direction = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+        const nextIndex = (currentIndex + direction + categoriesList.length) % categoriesList.length;
+        selectCategory(categoriesList[nextIndex].id);
+        return;
+      }
+
+      if (event.key === "Backspace") {
+        event.preventDefault();
+        backspaceCategoryDraft();
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+
+        if (categoryDraftText.trim()) {
+          confirmCategoryDraft();
+          return;
+        }
+
+        if (selectedCategoryId) {
+          openCategory(selectedCategoryId);
+        }
+
+        return;
+      }
+
+      if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        event.preventDefault();
+        appendCategoryDraftCharacter(event.key);
+      }
+
       return;
     }
 
@@ -1242,6 +1451,17 @@ export function StudyTreeApp() {
     }
 
     const pastedText = clipboardData.getData("text");
+
+    if (!activeCategoryId) {
+      if (pastedText) {
+        event.preventDefault();
+        for (const character of pastedText) {
+          appendCategoryDraftCharacter(character);
+        }
+      }
+
+      return;
+    }
 
     if (openedCardId && pastedText) {
       const tableCells = parseClipboardTable(pastedText);
@@ -1779,13 +1999,42 @@ export function StudyTreeApp() {
       >
         <div className="question-stage-backdrop" />
 
-        {!isModalOpen && cardsList.length === 0 && !draftText && !draftImage ? (
+        {!activeCategoryId ? (
+          <CategoryHome
+            categories={categoriesList}
+            selectedCategoryId={selectedCategoryId}
+            categoryDraftText={categoryDraftText}
+            renamingCategoryId={renamingCategoryId}
+            renameDraft={categoryRenameDraft}
+            onSelect={selectCategory}
+            onOpen={openCategory}
+            onStartRename={(category) => {
+              setRenamingCategoryId(category.id);
+              setCategoryRenameDraft(category.name);
+            }}
+            onRenameDraft={setCategoryRenameDraft}
+            onConfirmRename={() => {
+              if (renamingCategoryId) {
+                renameCategory(renamingCategoryId, categoryRenameDraft);
+              }
+
+              setRenamingCategoryId(null);
+              setCategoryRenameDraft("");
+            }}
+            onCancelRename={() => {
+              setRenamingCategoryId(null);
+              setCategoryRenameDraft("");
+            }}
+          />
+        ) : null}
+
+        {activeCategoryId && !isModalOpen && cardsList.length === 0 && !draftText && !draftImage ? (
           <div className="empty-state" aria-live="polite">
             <p>Escribe una duda, pega una imagen o combina ambas y presiona Enter.</p>
           </div>
         ) : null}
 
-        {!isModalOpen ? (
+        {activeCategoryId && !isModalOpen ? (
           <div
             className="question-world"
             style={{
@@ -1809,7 +2058,7 @@ export function StudyTreeApp() {
           </div>
         ) : null}
 
-        {!isModalOpen && (draftText || draftImage) ? (
+        {activeCategoryId && !isModalOpen && (draftText || draftImage) ? (
           <div className="draft-composer-shell" aria-live="polite">
             <div className="draft-composer">
               {draftCommandHint ? <div className="draft-command-hint">{draftCommandHint}</div> : null}
@@ -1842,7 +2091,7 @@ export function StudyTreeApp() {
           </div>
         ) : null}
 
-        {openedCard ? (
+        {activeCategoryId && openedCard ? (
           <div
             className="card-modal-overlay"
             onPointerDown={(event) => {
@@ -1990,7 +2239,7 @@ export function StudyTreeApp() {
           </div>
         ) : null}
 
-        {!isModalOpen && showUndoToast && canUndoDeletion ? (
+        {activeCategoryId && !isModalOpen && showUndoToast && canUndoDeletion ? (
           <div className="undo-toast" aria-live="polite">
             <span>Duda eliminada.</span>
             <button
@@ -2007,13 +2256,13 @@ export function StudyTreeApp() {
           </div>
         ) : null}
 
-        {!isModalOpen && showSearchFeedback ? (
+        {activeCategoryId && !isModalOpen && showSearchFeedback ? (
           <div className="search-feedback" aria-live="polite">
             No se encontraron coincidencias.
           </div>
         ) : null}
 
-        {!isModalOpen && showPasteFeedback ? (
+        {activeCategoryId && !isModalOpen && showPasteFeedback ? (
           <div className="paste-feedback" aria-live="polite">
             No se pudo leer la imagen pegada.
           </div>

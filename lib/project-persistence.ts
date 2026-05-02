@@ -1,6 +1,13 @@
 "use client";
 
-import type { DetailsImage, DetailsTable, PendingImageAsset, ProjectSnapshot } from "@/lib/types";
+import type {
+  DetailsImage,
+  DetailsTable,
+  PendingImageAsset,
+  ProjectSnapshot,
+  QuestionCard,
+  StudyCategory,
+} from "@/lib/types";
 
 const DB_NAME = "study-tree-projects";
 const DB_VERSION = 3;
@@ -323,22 +330,69 @@ function normalizeDetailsImages(value: unknown): DetailsImage[] {
     .filter((image): image is DetailsImage => Boolean(image));
 }
 
+function normalizeCards(value: unknown) {
+  const cards = value && typeof value === "object" ? (value as Record<string, QuestionCard>) : {};
+
+  return Object.fromEntries(
+    Object.entries(cards).map(([cardId, card]) => [
+      cardId,
+      {
+        ...card,
+        detailsText: typeof card.detailsText === "string" ? card.detailsText : "",
+        detailsTable: normalizeDetailsTable(card.detailsTable),
+        detailsImages: normalizeDetailsImages(card.detailsImages),
+      },
+    ]),
+  );
+}
+
 function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot {
-  return {
-    version: 4,
-    cards: Object.fromEntries(
-      Object.entries(snapshot.cards ?? {}).map(([cardId, card]) => [
-        cardId,
+  const timestamp = new Date().toISOString();
+  const legacyCards = normalizeCards(snapshot.cards);
+  const legacyCategoryId = crypto.randomUUID();
+  const sourceCategories =
+    snapshot.categories && Object.keys(snapshot.categories).length > 0
+      ? snapshot.categories
+      : {
+          [legacyCategoryId]: {
+            id: legacyCategoryId,
+            name: "Sin nombre",
+            cards: legacyCards,
+            selectedCardId: snapshot.selectedCardId ?? null,
+            draftText: snapshot.draftText ?? "",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        };
+  const categories = Object.fromEntries(
+    Object.entries(sourceCategories).map(([categoryId, category]) => {
+      const source = category as StudyCategory;
+      const cards = normalizeCards(source.cards);
+
+      return [
+        categoryId,
         {
-          ...card,
-          detailsText: typeof card.detailsText === "string" ? card.detailsText : "",
-          detailsTable: normalizeDetailsTable(card.detailsTable),
-          detailsImages: normalizeDetailsImages(card.detailsImages),
-        },
-      ]),
-    ),
-    selectedCardId: snapshot.selectedCardId ?? null,
-    draftText: snapshot.draftText ?? "",
+          id: source.id || categoryId,
+          name: typeof source.name === "string" && source.name.trim() ? source.name.trim() : "Sin nombre",
+          cards,
+          selectedCardId: source.selectedCardId && cards[source.selectedCardId] ? source.selectedCardId : null,
+          draftText: typeof source.draftText === "string" ? source.draftText : "",
+          createdAt: typeof source.createdAt === "string" ? source.createdAt : timestamp,
+          updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : timestamp,
+        } satisfies StudyCategory,
+      ];
+    }),
+  );
+
+  return {
+    version: 5,
+    categories,
+    activeCategoryId: null,
+    selectedCategoryId:
+      snapshot.selectedCategoryId && categories[snapshot.selectedCategoryId]
+        ? snapshot.selectedCategoryId
+        : Object.keys(categories)[0] ?? null,
+    categoryDraftText: typeof snapshot.categoryDraftText === "string" ? snapshot.categoryDraftText : "",
     savedAt: typeof snapshot.savedAt === "string" ? snapshot.savedAt : "",
   };
 }
@@ -450,7 +504,7 @@ export async function readProjectSnapshot(handle: FileSystemDirectoryHandle) {
       throw new InvalidProjectFileError(error);
     }
 
-    if (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4) {
+    if (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5) {
       throw new IncompatibleProjectVersionError(
         typeof parsed.version === "number" ? parsed.version : null,
       );
@@ -475,11 +529,10 @@ export async function hydrateProjectSnapshotAssets(
 ) {
   const nextSnapshot: ProjectSnapshot = {
     ...snapshot,
-    cards: {},
+    categories: {},
   };
 
-  const entries = await Promise.all(
-    Object.entries(snapshot.cards).map(async ([cardId, card]) => {
+  const hydrateCard = async (cardId: string, card: QuestionCard) => {
       const mainImageFile = card.image?.path ? await readImageAsset(handle, card.image.path) : null;
       const detailsImages = await Promise.all(
         (card.detailsImages ?? []).map(async (image) => {
@@ -496,9 +549,7 @@ export async function hydrateProjectSnapshotAssets(
         }),
       );
 
-      return [
-        cardId,
-        {
+      return {
           ...card,
           detailsImages,
           image:
@@ -508,12 +559,29 @@ export async function hydrateProjectSnapshotAssets(
                   previewUrl: URL.createObjectURL(mainImageFile),
                 }
               : card.image,
+        };
+  };
+
+  const categoryEntries = await Promise.all(
+    Object.entries(snapshot.categories).map(async ([categoryId, category]) => {
+      const cardEntries = await Promise.all(
+        Object.entries(category.cards).map(async ([cardId, card]) => [
+          cardId,
+          await hydrateCard(cardId, card),
+        ] as const),
+      );
+
+      return [
+        categoryId,
+        {
+          ...category,
+          cards: Object.fromEntries(cardEntries),
         },
       ] as const;
     }),
   );
 
-  nextSnapshot.cards = Object.fromEntries(entries);
+  nextSnapshot.categories = Object.fromEntries(categoryEntries);
   return nextSnapshot;
 }
 

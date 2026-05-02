@@ -172,6 +172,64 @@ img {
   line-height: 1.55;
 }
 
+.category-home {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.category-grid {
+  position: relative;
+  z-index: 1;
+  min-height: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 22rem));
+  align-content: center;
+  justify-content: center;
+  gap: clamp(1.2rem, 4vw, 3rem);
+  padding: 2rem;
+}
+
+.category-orb {
+  aspect-ratio: 1;
+  border: 0.42rem solid rgba(72, 72, 72, 0.78);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #303030;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  cursor: pointer;
+  font-size: clamp(1.7rem, 4vw, 3.4rem);
+  line-height: 1.08;
+  text-align: center;
+  box-shadow: 0 24px 56px rgba(71, 48, 22, 0.1);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.category-orb:hover,
+.category-orb.is-selected {
+  border-color: var(--accent);
+  box-shadow:
+    0 28px 64px rgba(71, 48, 22, 0.14),
+    0 0 0 0.3rem rgba(197, 124, 53, 0.16);
+  transform: translateY(-2px);
+}
+
+.category-rename-input {
+  width: 85%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+}
+
 .question-card {
   position: absolute;
   pointer-events: auto;

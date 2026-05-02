@@ -67,11 +67,25 @@ export type DraftState = {
   image: DraftImage | null;
 };
 
-export type ProjectSnapshot = {
-  version: 4;
+export type StudyCategory = {
+  id: string;
+  name: string;
   cards: Record<string, QuestionCard>;
   selectedCardId: string | null;
   draftText: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectSnapshot = {
+  version: 5;
+  categories: Record<string, StudyCategory>;
+  activeCategoryId: string | null;
+  categoryDraftText: string;
+  selectedCategoryId: string | null;
+  cards?: Record<string, QuestionCard>;
+  selectedCardId?: string | null;
+  draftText?: string;
   savedAt: string;
 };
 

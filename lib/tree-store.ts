@@ -14,6 +14,7 @@ import type {
   QuestionCard,
   SearchFeedback,
   SearchResult,
+  StudyCategory,
 } from "@/lib/types";
 
 type UndoSnapshot = {
@@ -30,6 +31,10 @@ type CardSelectionOptions = {
 };
 
 type TreeStore = {
+  categories: Record<string, StudyCategory>;
+  activeCategoryId: string | null;
+  selectedCategoryId: string | null;
+  categoryDraftText: string;
   cards: Record<string, QuestionCard>;
   selectedCardId: string | null;
   openedCardId: string | null;
@@ -44,6 +49,15 @@ type TreeStore = {
   searchFeedback: SearchFeedback;
   pasteFeedback: PasteFeedback;
   pasteFeedbackVersion: number;
+  createCategory: (name: string) => string | null;
+  renameCategory: (categoryId: string, name: string) => void;
+  selectCategory: (categoryId: string | null) => void;
+  openCategory: (categoryId: string) => void;
+  closeCategory: () => void;
+  appendCategoryDraftCharacter: (value: string) => void;
+  backspaceCategoryDraft: () => void;
+  clearCategoryDraft: () => void;
+  confirmCategoryDraft: () => void;
   appendDraftCharacter: (value: string) => void;
   appendDraftText: (value: string) => void;
   pasteStructuredText: (value: string) => void;
@@ -228,6 +242,19 @@ function cloneCards(cards: Record<string, QuestionCard>) {
   return Object.fromEntries(Object.entries(cards).map(([cardId, card]) => [cardId, cloneCard(card)]));
 }
 
+function cloneCategory(category: StudyCategory): StudyCategory {
+  return {
+    ...category,
+    cards: cloneCards(category.cards),
+  };
+}
+
+function cloneCategories(categories: Record<string, StudyCategory>) {
+  return Object.fromEntries(
+    Object.entries(categories).map(([categoryId, category]) => [categoryId, cloneCategory(category)]),
+  );
+}
+
 function revokeDraftImageUrl(draftImage: DraftImage | null) {
   if (draftImage?.previewUrl) {
     URL.revokeObjectURL(draftImage.previewUrl);
@@ -289,6 +316,10 @@ function getNextZIndex(cards: Record<string, QuestionCard>) {
 
 function createEmptyState() {
   return {
+    categories: {} as Record<string, StudyCategory>,
+    activeCategoryId: null as string | null,
+    selectedCategoryId: null as string | null,
+    categoryDraftText: "",
     cards: {} as Record<string, QuestionCard>,
     selectedCardId: null,
     openedCardId: null,
@@ -300,6 +331,39 @@ function createEmptyState() {
     pasteFeedbackVersion: 0,
     ...getEmptySearchState(),
     ...getEmptyPasteFeedback(),
+  };
+}
+
+function createCategorySnapshot(
+  category: StudyCategory,
+  cards: Record<string, QuestionCard>,
+  selectedCardId: string | null,
+  draftText: string,
+  timestamp: string,
+): StudyCategory {
+  return {
+    ...category,
+    cards: cloneCards(cards),
+    selectedCardId: selectedCardId && cards[selectedCardId] ? selectedCardId : null,
+    draftText,
+    updatedAt: timestamp,
+  };
+}
+
+function getSyncedCategories(state: TreeStore) {
+  if (!state.activeCategoryId || !state.categories[state.activeCategoryId]) {
+    return cloneCategories(state.categories);
+  }
+
+  return {
+    ...cloneCategories(state.categories),
+    [state.activeCategoryId]: createCategorySnapshot(
+      state.categories[state.activeCategoryId],
+      state.cards,
+      state.selectedCardId,
+      state.draftText,
+      state.snapshotUpdatedAt,
+    ),
   };
 }
 
@@ -354,9 +418,8 @@ function getAutoCardPosition(
   };
 }
 
-function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
-  const sourceCards = snapshot.cards ?? {};
-  const cards = Object.fromEntries(
+function normalizeCards(sourceCards: Record<string, QuestionCard> = {}) {
+  return Object.fromEntries(
     Object.entries(sourceCards).map(([cardId, card]) => [
       cardId,
       {
@@ -394,15 +457,61 @@ function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
       } satisfies QuestionCard,
     ]),
   );
+}
 
-  const selectedCardId =
-    snapshot.selectedCardId && cards[snapshot.selectedCardId] ? snapshot.selectedCardId : null;
+function normalizeCategory(category: StudyCategory): StudyCategory {
+  const timestamp = createSnapshotTimestamp();
+  const cards = normalizeCards(category.cards);
 
   return {
-    version: 4,
+    id: category.id || makeId(),
+    name: normalizeCardText(category.name || "Sin nombre") || "Sin nombre",
     cards,
-    selectedCardId,
-    draftText: normalizeDraftText(snapshot.draftText ?? ""),
+    selectedCardId: category.selectedCardId && cards[category.selectedCardId] ? category.selectedCardId : null,
+    draftText: normalizeDraftText(category.draftText ?? ""),
+    createdAt: typeof category.createdAt === "string" ? category.createdAt : timestamp,
+    updatedAt: typeof category.updatedAt === "string" ? category.updatedAt : timestamp,
+  };
+}
+
+function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
+  const timestamp = createSnapshotTimestamp();
+  const legacyCards = normalizeCards(snapshot.cards ?? {});
+  const legacyCategoryId = makeId();
+  const sourceCategories =
+    snapshot.categories && Object.keys(snapshot.categories).length > 0
+      ? snapshot.categories
+      : {
+          [legacyCategoryId]: {
+            id: legacyCategoryId,
+            name: "Sin nombre",
+            cards: legacyCards,
+            selectedCardId:
+              snapshot.selectedCardId && legacyCards[snapshot.selectedCardId]
+                ? snapshot.selectedCardId
+                : null,
+            draftText: normalizeDraftText(snapshot.draftText ?? ""),
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        };
+  const categories = Object.fromEntries(
+    Object.entries(sourceCategories).map(([categoryId, category]) => [
+      categoryId,
+      normalizeCategory({ ...category, id: category.id || categoryId }),
+    ]),
+  );
+  const selectedCategoryId =
+    snapshot.selectedCategoryId && categories[snapshot.selectedCategoryId]
+      ? snapshot.selectedCategoryId
+      : Object.keys(categories)[0] ?? null;
+
+  return {
+    version: 5,
+    categories,
+    activeCategoryId: null,
+    selectedCategoryId,
+    categoryDraftText: normalizeDraftText(snapshot.categoryDraftText ?? ""),
     savedAt: typeof snapshot.savedAt === "string" ? snapshot.savedAt : "",
   };
 }
@@ -455,8 +564,162 @@ function createPersistedCard(card: QuestionCard): QuestionCard {
   };
 }
 
+function createPersistedCategory(category: StudyCategory): StudyCategory {
+  return {
+    ...category,
+    cards: Object.fromEntries(
+      Object.entries(category.cards).map(([cardId, card]) => [cardId, createPersistedCard(card)]),
+    ),
+    selectedCardId:
+      category.selectedCardId && category.cards[category.selectedCardId]
+        ? category.selectedCardId
+        : null,
+    draftText: category.draftText,
+  };
+}
+
 export const useTreeStore = create<TreeStore>((set, get) => ({
   ...createEmptyState(),
+  createCategory: (name) => {
+    const normalizedName = normalizeCardText(name);
+
+    if (!normalizedName) {
+      return null;
+    }
+
+    const id = makeId();
+    const timestamp = createSnapshotTimestamp();
+    const category: StudyCategory = {
+      id,
+      name: normalizedName,
+      cards: {},
+      selectedCardId: null,
+      draftText: "",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+
+    set((state) => ({
+      categories: {
+        ...getSyncedCategories(state),
+        [id]: category,
+      },
+      selectedCategoryId: id,
+      categoryDraftText: "",
+      snapshotUpdatedAt: timestamp,
+    }));
+
+    return id;
+  },
+  renameCategory: (categoryId, name) => {
+    const normalizedName = normalizeCardText(name) || "Sin nombre";
+    const state = get();
+    const categories = getSyncedCategories(state);
+    const category = categories[categoryId];
+
+    if (!category || category.name === normalizedName) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      categories: {
+        ...categories,
+        [categoryId]: {
+          ...category,
+          name: normalizedName,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  selectCategory: (categoryId) => {
+    const { categories } = get();
+
+    set({
+      selectedCategoryId: categoryId && categories[categoryId] ? categoryId : null,
+    });
+  },
+  openCategory: (categoryId) => {
+    const state = get();
+    const categories = getSyncedCategories(state);
+    const category = categories[categoryId];
+
+    if (!category) {
+      return;
+    }
+
+    disposeUndoSnapshot(lastDeletionSnapshot, state.cards);
+    lastDeletionSnapshot = null;
+    revokeDraftImageUrl(state.draftImage);
+
+    set({
+      categories,
+      activeCategoryId: categoryId,
+      selectedCategoryId: categoryId,
+      cards: cloneCards(category.cards),
+      selectedCardId: category.selectedCardId,
+      openedCardId: null,
+      draftText: category.draftText,
+      draftImage: null,
+      canUndoDeletion: false,
+      nextZIndex: getNextZIndex(category.cards),
+      ...getEmptySearchState(),
+      ...getEmptyPasteFeedback(),
+    });
+  },
+  closeCategory: () => {
+    const state = get();
+
+    if (!state.activeCategoryId) {
+      return;
+    }
+
+    revokeDraftImageUrl(state.draftImage);
+
+    set({
+      categories: getSyncedCategories(state),
+      selectedCategoryId: state.activeCategoryId,
+      activeCategoryId: null,
+      cards: {},
+      selectedCardId: null,
+      openedCardId: null,
+      draftText: "",
+      draftImage: null,
+      canUndoDeletion: false,
+      nextZIndex: 1,
+      ...getEmptySearchState(),
+      ...getEmptyPasteFeedback(),
+    });
+  },
+  appendCategoryDraftCharacter: (value) => {
+    if (!value) {
+      return;
+    }
+
+    set((state) => ({
+      categoryDraftText: `${state.categoryDraftText}${value}`,
+      snapshotUpdatedAt: createSnapshotTimestamp(),
+    }));
+  },
+  backspaceCategoryDraft: () => {
+    set((state) => ({
+      categoryDraftText: state.categoryDraftText.slice(0, -1),
+      snapshotUpdatedAt: createSnapshotTimestamp(),
+    }));
+  },
+  clearCategoryDraft: () => {
+    set({
+      categoryDraftText: "",
+      snapshotUpdatedAt: createSnapshotTimestamp(),
+    });
+  },
+  confirmCategoryDraft: () => {
+    const { categoryDraftText } = get();
+    get().createCategory(categoryDraftText);
+  },
   appendDraftCharacter: (value) => {
     if (!value) {
       return;
@@ -1176,20 +1439,32 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     }));
   },
   getProjectSnapshot: () => {
-    const { cards, selectedCardId, draftText } = get();
+    const state = get();
+    const categories = getSyncedCategories(state);
 
     return {
-      version: 4,
-      cards: Object.fromEntries(
-        Object.entries(cards).map(([cardId, card]) => [cardId, createPersistedCard(card)]),
+      version: 5,
+      categories: Object.fromEntries(
+        Object.entries(categories).map(([categoryId, category]) => [
+          categoryId,
+          createPersistedCategory(category),
+        ]),
       ),
-      selectedCardId: selectedCardId && cards[selectedCardId] ? selectedCardId : null,
-      draftText,
-      savedAt: get().snapshotUpdatedAt,
+      activeCategoryId: null,
+      selectedCategoryId:
+        state.selectedCategoryId && categories[state.selectedCategoryId]
+          ? state.selectedCategoryId
+          : Object.keys(categories)[0] ?? null,
+      categoryDraftText: state.categoryDraftText,
+      savedAt: state.snapshotUpdatedAt,
     };
   },
   getPendingImageAssets: () => {
-    return Object.values(get().cards).flatMap((card) => [
+    const cards = Object.values(getSyncedCategories(get())).flatMap((category) =>
+      Object.values(category.cards),
+    );
+
+    return cards.flatMap((card) => [
       ...(card.image?.pendingBlob
         ? [{
         cardId: card.id,
@@ -1212,42 +1487,56 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       return;
     }
 
-    const { cards } = get();
+    const state = get();
+    const categories = getSyncedCategories(state);
     let hasChanged = false;
-    const nextCards = { ...cards };
+    const nextCategories = { ...categories };
 
-    for (const cardId of cardIds) {
-      const card = nextCards[cardId];
+    for (const category of Object.values(nextCategories)) {
+      const nextCards = { ...category.cards };
 
-      let nextCard = card;
+      for (const cardId of cardIds) {
+        const card = nextCards[cardId];
 
-      if (card?.image?.pendingBlob) {
-        nextCard = {
-          ...nextCard,
-          image: {
-            ...card.image,
-            pendingBlob: null,
-          },
-        };
-        hasChanged = true;
+        if (!card) {
+          continue;
+        }
+
+        let nextCard = card;
+
+        if (card.image?.pendingBlob) {
+          nextCard = {
+            ...nextCard,
+            image: {
+              ...card.image,
+              pendingBlob: null,
+            },
+          };
+          hasChanged = true;
+        }
+
+        const detailsImages = normalizeDetailsImages(card.detailsImages);
+        const nextDetailsImages = detailsImages.map((image) =>
+          image.pendingBlob ? { ...image, pendingBlob: null } : image,
+        );
+
+        if (nextDetailsImages.some((image, index) => image !== detailsImages[index])) {
+          nextCard = {
+            ...nextCard,
+            detailsImages: nextDetailsImages,
+          };
+          hasChanged = true;
+        }
+
+        if (nextCard !== card) {
+          nextCards[cardId] = nextCard;
+        }
       }
 
-      const detailsImages = normalizeDetailsImages(card?.detailsImages);
-      const nextDetailsImages = detailsImages.map((image) =>
-        image.pendingBlob ? { ...image, pendingBlob: null } : image,
-      );
-
-      if (nextDetailsImages.some((image, index) => image !== detailsImages[index])) {
-        nextCard = {
-          ...nextCard,
-          detailsImages: nextDetailsImages,
-        };
-        hasChanged = true;
-      }
-
-      if (nextCard !== card) {
-        nextCards[cardId] = nextCard;
-      }
+      nextCategories[category.id] = {
+        ...category,
+        cards: nextCards,
+      };
     }
 
     if (!hasChanged) {
@@ -1255,7 +1544,11 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     }
 
     set({
-      cards: nextCards,
+      categories: nextCategories,
+      cards:
+        state.activeCategoryId && nextCategories[state.activeCategoryId]
+          ? cloneCards(nextCategories[state.activeCategoryId].cards)
+          : state.cards,
     });
   },
   loadProjectSnapshot: (snapshot, draftImage = null) => {
@@ -1265,17 +1558,25 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     lastDeletionSnapshot = null;
 
     const normalized = normalizeProjectSnapshot(snapshot);
-    revokeUnusedCardImageUrls(currentState.cards, normalized.cards);
+    const nextCards = Object.values(normalized.categories).reduce(
+      (accumulator, category) => ({ ...accumulator, ...category.cards }),
+      {} as Record<string, QuestionCard>,
+    );
+    revokeUnusedCardImageUrls(currentState.cards, nextCards);
 
     set({
-      cards: normalized.cards,
-      selectedCardId: normalized.selectedCardId,
+      categories: normalized.categories,
+      activeCategoryId: null,
+      selectedCategoryId: normalized.selectedCategoryId,
+      categoryDraftText: normalized.categoryDraftText,
+      cards: {},
+      selectedCardId: null,
       openedCardId: null,
-      draftText: normalized.draftText,
+      draftText: "",
       draftImage,
       snapshotUpdatedAt: normalized.savedAt,
       canUndoDeletion: false,
-      nextZIndex: getNextZIndex(normalized.cards),
+      nextZIndex: 1,
       ...getEmptySearchState(),
       ...getEmptyPasteFeedback(),
     });
