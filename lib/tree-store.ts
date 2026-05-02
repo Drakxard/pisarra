@@ -49,13 +49,14 @@ type TreeStore = {
   clearDraftImage: () => void;
   backspaceDraft: () => void;
   clearDraft: () => void;
-  confirmDraft: (viewport: CardSize) => void;
+  confirmDraft: (viewport: CardSize, visibleOrigin?: CardPosition) => void;
   updateCardDetails: (cardId: string, detailsText: string) => void;
   selectCard: (cardId: string | null, options?: CardSelectionOptions) => void;
   openCard: (cardId: string) => void;
   closeCard: () => void;
   moveCard: (cardId: string, position: CardPosition) => void;
   setCardSize: (cardId: string, size: CardSize) => void;
+  deleteCard: (cardId: string) => void;
   deleteSelectedCard: () => void;
   undoLastDeletion: () => void;
   clearDeletionUndo: () => void;
@@ -196,7 +197,11 @@ function getCardCount(cards: Record<string, QuestionCard>) {
   return Object.keys(cards).length;
 }
 
-function getAutoCardPosition(cards: Record<string, QuestionCard>, viewport: CardSize): CardPosition {
+function getAutoCardPosition(
+  cards: Record<string, QuestionCard>,
+  viewport: CardSize,
+  visibleOrigin: CardPosition = { x: 0, y: 0 },
+): CardPosition {
   const safeWidth = Math.max(viewport.width, AUTO_LAYOUT_CARD_WIDTH + AUTO_LAYOUT_PADDING * 2);
   const safeHeight = Math.max(viewport.height, AUTO_LAYOUT_CARD_HEIGHT + AUTO_LAYOUT_PADDING * 2);
   const columns = Math.max(
@@ -219,8 +224,8 @@ function getAutoCardPosition(cards: Record<string, QuestionCard>, viewport: Card
   const offset = cycle * AUTO_LAYOUT_CYCLE_OFFSET;
 
   return {
-    x: AUTO_LAYOUT_PADDING + column * (AUTO_LAYOUT_CARD_WIDTH + AUTO_LAYOUT_GAP) + offset,
-    y: AUTO_LAYOUT_PADDING + row * (AUTO_LAYOUT_CARD_HEIGHT + AUTO_LAYOUT_GAP) + offset,
+    x: visibleOrigin.x + AUTO_LAYOUT_PADDING + column * (AUTO_LAYOUT_CARD_WIDTH + AUTO_LAYOUT_GAP) + offset,
+    y: visibleOrigin.y + AUTO_LAYOUT_PADDING + row * (AUTO_LAYOUT_CARD_HEIGHT + AUTO_LAYOUT_GAP) + offset,
   };
 }
 
@@ -384,7 +389,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       snapshotUpdatedAt,
     });
   },
-  confirmDraft: (viewport) => {
+  confirmDraft: (viewport, visibleOrigin) => {
     const state = get();
     const normalizedText = normalizeCardText(state.draftText);
     const hasImage = Boolean(state.draftImage);
@@ -425,7 +430,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
             pendingBlob: state.draftImage.blob,
           }
         : null,
-      position: getAutoCardPosition(state.cards, viewport),
+      position: getAutoCardPosition(state.cards, viewport, visibleOrigin),
       zIndex: state.nextZIndex,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -586,11 +591,11 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       },
     });
   },
-  deleteSelectedCard: () => {
+  deleteCard: (cardId) => {
     const state = get();
-    const { selectedCardId, cards } = state;
+    const { cards } = state;
 
-    if (!selectedCardId || !cards[selectedCardId]) {
+    if (!cards[cardId]) {
       return;
     }
 
@@ -598,19 +603,28 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     lastDeletionSnapshot = createUndoSnapshot(state);
     const nextCards = { ...cards };
 
-    delete nextCards[selectedCardId];
+    delete nextCards[cardId];
 
     const snapshotUpdatedAt = createSnapshotTimestamp();
 
     set({
       cards: nextCards,
-      selectedCardId: null,
-      openedCardId: state.openedCardId === selectedCardId ? null : state.openedCardId,
+      selectedCardId: state.selectedCardId === cardId ? null : state.selectedCardId,
+      openedCardId: state.openedCardId === cardId ? null : state.openedCardId,
       snapshotUpdatedAt,
       canUndoDeletion: true,
       ...getEmptySearchState(),
       ...getEmptyPasteFeedback(),
     });
+  },
+  deleteSelectedCard: () => {
+    const { selectedCardId } = get();
+
+    if (!selectedCardId) {
+      return;
+    }
+
+    get().deleteCard(selectedCardId);
   },
   undoLastDeletion: () => {
     const snapshot = lastDeletionSnapshot;

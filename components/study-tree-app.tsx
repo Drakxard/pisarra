@@ -46,9 +46,11 @@ const UNDO_TIMEOUT_MS = 3000;
 const PASTE_FEEDBACK_TIMEOUT_MS = 2600;
 const CARD_FALLBACK_WIDTH = 320;
 const CARD_FALLBACK_HEIGHT = 220;
-const STAGE_PADDING = 16;
 const KEYBOARD_MOVE_STEP = 24;
 const START_DETAILS_EDIT_EVENT = "study-tree:start-details-edit";
+const EDGE_PAN_MARGIN = 72;
+const EDGE_PAN_MAX_STEP = 18;
+const CLOSE_HOLD_DELETE_MS = 800;
 
 type StageSize = {
   width: number;
@@ -64,7 +66,17 @@ type DragState = {
   startY: number;
   originX: number;
   originY: number;
+  cameraOriginX: number;
+  cameraOriginY: number;
   hasMoved: boolean;
+};
+
+type PanState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -569,16 +581,6 @@ async function createDraftImageFromFile(file: File): Promise<DraftImage> {
   }
 }
 
-function clampCardPosition(card: QuestionCard, stageSize: StageSize, x: number, y: number) {
-  const width = card.size?.width ?? CARD_FALLBACK_WIDTH;
-  const height = card.size?.height ?? CARD_FALLBACK_HEIGHT;
-
-  return {
-    x: clamp(x, STAGE_PADDING, Math.max(STAGE_PADDING, stageSize.width - width - STAGE_PADDING)),
-    y: clamp(y, STAGE_PADDING, Math.max(STAGE_PADDING, stageSize.height - height - STAGE_PADDING)),
-  };
-}
-
 function getDraftCommandHint(draftText: string, hasImage: boolean) {
   const normalized = draftText.trim();
 
@@ -663,6 +665,7 @@ export function StudyTreeApp() {
     closeCard,
     moveCard,
     setCardSize,
+    deleteCard,
     deleteSelectedCard,
     undoLastDeletion,
     clearDeletionUndo,
@@ -692,10 +695,15 @@ export function StudyTreeApp() {
   const lastPersistedProjectSignatureRef = useRef<string | null>(null);
   const undoTimeoutRef = useRef<number | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const panStateRef = useRef<PanState | null>(null);
+  const cameraRef = useRef({ x: 0, y: 0 });
+  const closeHoldTimeoutRef = useRef<number | null>(null);
+  const closeHoldDidDeleteRef = useRef(false);
   const [stageSize, setStageSize] = useState<StageSize>({
     width: DEFAULT_STAGE_WIDTH,
     height: DEFAULT_STAGE_HEIGHT,
   });
+  const [camera, setCameraState] = useState({ x: 0, y: 0 });
   const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [bootState, setBootState] = useState<AppBootState>("loading");
   const [bootError, setBootError] = useState<string | null>(null);
@@ -706,10 +714,22 @@ export function StudyTreeApp() {
   const [canUseProjectDirectory, setCanUseProjectDirectory] = useState(false);
   const [hasResolvedDirectorySupport, setHasResolvedDirectorySupport] = useState(false);
 
+  const setCamera = (nextCamera: { x: number; y: number }) => {
+    cameraRef.current = nextCamera;
+    setCameraState(nextCamera);
+  };
+
   const clearUndoTimer = useEffectEvent(() => {
     if (undoTimeoutRef.current !== null) {
       window.clearTimeout(undoTimeoutRef.current);
       undoTimeoutRef.current = null;
+    }
+  });
+
+  const clearCloseHoldTimer = useEffectEvent(() => {
+    if (closeHoldTimeoutRef.current !== null) {
+      window.clearTimeout(closeHoldTimeoutRef.current);
+      closeHoldTimeoutRef.current = null;
     }
   });
 
@@ -855,7 +875,10 @@ export function StudyTreeApp() {
 
       moveCard(
         selectedCardId,
-        clampCardPosition(selectedCard, stageSize, nextX, nextY),
+        {
+          x: nextX,
+          y: nextY,
+        },
       );
       return;
     }
@@ -884,7 +907,10 @@ export function StudyTreeApp() {
 
     if (event.key === "Enter") {
       event.preventDefault();
-      confirmDraft(stageSize);
+      confirmDraft(stageSize, {
+        x: -cameraRef.current.x,
+        y: -cameraRef.current.y,
+      });
       return;
     }
 
@@ -960,7 +986,44 @@ export function StudyTreeApp() {
       return;
     }
 
+    if (event.button !== 0 && event.pointerType !== "touch") {
+      return;
+    }
+
+    event.preventDefault();
     selectCard(null);
+    panStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: cameraRef.current.x,
+      originY: cameraRef.current.y,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  });
+
+  const onStagePointerMove = useEffectEvent((event: ReactPointerEvent<HTMLElement>) => {
+    const panState = panStateRef.current;
+
+    if (!panState || panState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    setCamera({
+      x: panState.originX + event.clientX - panState.startX,
+      y: panState.originY + event.clientY - panState.startY,
+    });
+  });
+
+  const endStagePan = useEffectEvent((event: ReactPointerEvent<HTMLElement>) => {
+    const panState = panStateRef.current;
+
+    if (!panState || panState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    panStateRef.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
   });
 
   const onCardPointerDown = useEffectEvent((cardId: string, event: ReactPointerEvent<HTMLDivElement>) => {
@@ -984,6 +1047,8 @@ export function StudyTreeApp() {
       startY: event.clientY,
       originX: card.position.x,
       originY: card.position.y,
+      cameraOriginX: cameraRef.current.x,
+      cameraOriginY: cameraRef.current.y,
       hasMoved: false,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -1002,8 +1067,42 @@ export function StudyTreeApp() {
       return;
     }
 
+    const rect = stageRef.current?.getBoundingClientRect();
+    let nextCamera = cameraRef.current;
+
+    if (rect) {
+      let panX = 0;
+      let panY = 0;
+      const leftDistance = event.clientX - rect.left;
+      const rightDistance = rect.right - event.clientX;
+      const topDistance = event.clientY - rect.top;
+      const bottomDistance = rect.bottom - event.clientY;
+
+      if (leftDistance < EDGE_PAN_MARGIN) {
+        panX = EDGE_PAN_MAX_STEP * (1 - clamp(leftDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
+      } else if (rightDistance < EDGE_PAN_MARGIN) {
+        panX = -EDGE_PAN_MAX_STEP * (1 - clamp(rightDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
+      }
+
+      if (topDistance < EDGE_PAN_MARGIN) {
+        panY = EDGE_PAN_MAX_STEP * (1 - clamp(topDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
+      } else if (bottomDistance < EDGE_PAN_MARGIN) {
+        panY = -EDGE_PAN_MAX_STEP * (1 - clamp(bottomDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
+      }
+
+      if (panX !== 0 || panY !== 0) {
+        nextCamera = {
+          x: cameraRef.current.x + panX,
+          y: cameraRef.current.y + panY,
+        };
+        setCamera(nextCamera);
+      }
+    }
+
     const deltaX = event.clientX - dragState.startX;
     const deltaY = event.clientY - dragState.startY;
+    const cameraDeltaX = nextCamera.x - dragState.cameraOriginX;
+    const cameraDeltaY = nextCamera.y - dragState.cameraOriginY;
 
     if (!dragState.hasMoved && Math.hypot(deltaX, deltaY) >= 4) {
       dragState.hasMoved = true;
@@ -1011,12 +1110,10 @@ export function StudyTreeApp() {
 
     moveCard(
       dragState.cardId,
-      clampCardPosition(
-        card,
-        stageSize,
-        dragState.originX + deltaX,
-        dragState.originY + deltaY,
-      ),
+      {
+        x: dragState.originX + deltaX - cameraDeltaX,
+        y: dragState.originY + deltaY - cameraDeltaY,
+      },
     );
   });
 
@@ -1129,6 +1226,26 @@ export function StudyTreeApp() {
       window.clearTimeout(timeoutId);
     };
   }, [clearPasteFeedback, pasteFeedback, pasteFeedbackVersion]);
+
+  useEffect(() => {
+    if (!activeSearchResult) {
+      return;
+    }
+
+    const card = cards[activeSearchResult.cardId];
+
+    if (!card) {
+      return;
+    }
+
+    const width = card.size?.width ?? CARD_FALLBACK_WIDTH;
+    const height = card.size?.height ?? CARD_FALLBACK_HEIGHT;
+
+    setCamera({
+      x: stageSize.width / 2 - card.position.x - width / 2,
+      y: stageSize.height / 2 - card.position.y - height / 2,
+    });
+  }, [activeSearchResult, cards, stageSize.height, stageSize.width]);
 
   useEffect(() => {
     setCanUseProjectDirectory(supportsProjectDirectory());
@@ -1254,8 +1371,9 @@ export function StudyTreeApp() {
   useEffect(() => {
     return () => {
       clearUndoTimer();
+      clearCloseHoldTimer();
     };
-  }, [clearUndoTimer]);
+  }, [clearCloseHoldTimer, clearUndoTimer]);
 
   if (bootState !== "ready") {
     return (
@@ -1303,6 +1421,9 @@ export function StudyTreeApp() {
         className="question-stage"
         aria-label="Espacio de dudas"
         onPointerDown={onStagePointerDown}
+        onPointerMove={onStagePointerMove}
+        onPointerUp={endStagePan}
+        onPointerCancel={endStagePan}
       >
         <div className="question-stage-backdrop" />
 
@@ -1312,22 +1433,29 @@ export function StudyTreeApp() {
           </div>
         ) : null}
 
-        {!isModalOpen
-          ? cardsList.map((card) => (
-              <QuestionCardSurface
-                key={card.id}
-                card={card}
-                isSelected={selectedCardId === card.id}
-                isSearchMatch={matchedCardIds.has(card.id)}
-                isActiveSearchMatch={activeSearchResult?.cardId === card.id}
-                onPointerDown={onCardPointerDown}
-                onPointerMove={onCardPointerMove}
-                onPointerUp={onCardPointerUp}
-                onPointerCancel={onCardPointerCancel}
-                onMeasure={setCardSize}
-              />
-            ))
-          : null}
+        {!isModalOpen ? (
+          <div
+            className="question-world"
+            style={{
+              transform: `translate(${camera.x}px, ${camera.y}px)`,
+            }}
+          >
+            {cardsList.map((card) => (
+                <QuestionCardSurface
+                  key={card.id}
+                  card={card}
+                  isSelected={selectedCardId === card.id}
+                  isSearchMatch={matchedCardIds.has(card.id)}
+                  isActiveSearchMatch={activeSearchResult?.cardId === card.id}
+                  onPointerDown={onCardPointerDown}
+                  onPointerMove={onCardPointerMove}
+                  onPointerUp={onCardPointerUp}
+                  onPointerCancel={onCardPointerCancel}
+                  onMeasure={setCardSize}
+                />
+              ))}
+          </div>
+        ) : null}
 
         {!isModalOpen && (draftText || draftImage) ? (
           <div className="draft-composer-shell" aria-live="polite">
@@ -1380,11 +1508,50 @@ export function StudyTreeApp() {
               <button
                 type="button"
                 className="card-modal-close"
-                onClick={() => {
+                aria-label="Cerrar detalle"
+                title="Click: cerrar. Mantener: borrar."
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  closeHoldDidDeleteRef.current = false;
+                  clearCloseHoldTimer();
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                  closeHoldTimeoutRef.current = window.setTimeout(() => {
+                    closeHoldTimeoutRef.current = null;
+                    closeHoldDidDeleteRef.current = true;
+                    deleteCard(openedCard.id);
+                  }, CLOSE_HOLD_DELETE_MS);
+                }}
+                onPointerUp={(event) => {
+                  event.preventDefault();
+                  event.currentTarget.releasePointerCapture?.(event.pointerId);
+
+                  if (closeHoldDidDeleteRef.current) {
+                    closeHoldDidDeleteRef.current = false;
+                    return;
+                  }
+
+                  clearCloseHoldTimer();
                   closeCard();
                 }}
+                onPointerCancel={(event) => {
+                  event.currentTarget.releasePointerCapture?.(event.pointerId);
+                  clearCloseHoldTimer();
+                  closeHoldDidDeleteRef.current = false;
+                }}
+                onPointerLeave={() => {
+                  clearCloseHoldTimer();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    closeCard();
+                  }
+                }}
               >
-                Cerrar
+                X
               </button>
               <div className="card-modal-body">
                 <CardContent card={openedCard} mode="full" />

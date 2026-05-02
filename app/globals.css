@@ -65,6 +65,12 @@ img {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.question-stage:active {
+  cursor: grabbing;
 }
 
 .directory-gate-panel {
@@ -136,6 +142,14 @@ img {
     linear-gradient(180deg, rgba(255, 252, 246, 0.22), transparent 42%);
 }
 
+.question-world {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
 .empty-state {
   position: absolute;
   left: 50%;
@@ -160,6 +174,7 @@ img {
 
 .question-card {
   position: absolute;
+  pointer-events: auto;
   width: min(24rem, calc(100vw - 2rem));
   max-width: calc(100vw - 2rem);
   display: flex;
@@ -442,8 +457,15 @@ img {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.66);
   color: #111111;
-  padding: 0.5rem 0.8rem;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
   cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  font-weight: 700;
+  touch-action: none;
+  user-select: none;
 }
 
 .card-modal-body {
