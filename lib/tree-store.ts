@@ -136,21 +136,45 @@ function revokeDraftImageUrl(draftImage: DraftImage | null) {
   }
 }
 
-function revokeCardImageUrls(cards: Record<string, QuestionCard>) {
-  for (const card of Object.values(cards)) {
-    if (card.image?.previewUrl) {
-      URL.revokeObjectURL(card.image.previewUrl);
+function revokeReplacedDraftImageUrl(
+  previousDraftImage: DraftImage | null,
+  nextDraftImage: DraftImage | null,
+) {
+  if (
+    previousDraftImage?.previewUrl &&
+    previousDraftImage.previewUrl !== nextDraftImage?.previewUrl
+  ) {
+    URL.revokeObjectURL(previousDraftImage.previewUrl);
+  }
+}
+
+function collectCardImageUrls(cards: Record<string, QuestionCard>) {
+  return new Set(
+    Object.values(cards)
+      .map((card) => card.image?.previewUrl)
+      .filter((previewUrl): previewUrl is string => Boolean(previewUrl)),
+  );
+}
+
+function revokeUnusedCardImageUrls(
+  previousCards: Record<string, QuestionCard>,
+  nextCards: Record<string, QuestionCard>,
+) {
+  const nextUrls = collectCardImageUrls(nextCards);
+
+  for (const previewUrl of collectCardImageUrls(previousCards)) {
+    if (!nextUrls.has(previewUrl)) {
+      URL.revokeObjectURL(previewUrl);
     }
   }
 }
 
-function disposeUndoSnapshot(snapshot: UndoSnapshot | null) {
+function disposeUndoSnapshot(snapshot: UndoSnapshot | null, liveCards: Record<string, QuestionCard>) {
   if (!snapshot) {
     return;
   }
 
-  revokeCardImageUrls(snapshot.cards);
-  revokeDraftImageUrl(snapshot.draftImage);
+  revokeUnusedCardImageUrls(snapshot.cards, liveCards);
 }
 
 function getNextZIndex(cards: Record<string, QuestionCard>) {
@@ -451,7 +475,10 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       ...getEmptySearchState(),
       ...getEmptyPasteFeedback(),
     });
-    disposeUndoSnapshot(lastDeletionSnapshot);
+    disposeUndoSnapshot(lastDeletionSnapshot, {
+      ...state.cards,
+      [id]: card,
+    });
     lastDeletionSnapshot = null;
   },
   updateCardDetails: (cardId, detailsText) => {
@@ -599,7 +626,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       return;
     }
 
-    disposeUndoSnapshot(lastDeletionSnapshot);
+    disposeUndoSnapshot(lastDeletionSnapshot, cards);
     lastDeletionSnapshot = createUndoSnapshot(state);
     const nextCards = { ...cards };
 
@@ -634,8 +661,8 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     }
 
     const currentState = get();
-    revokeCardImageUrls(currentState.cards);
-    revokeDraftImageUrl(currentState.draftImage);
+    revokeUnusedCardImageUrls(currentState.cards, snapshot.cards);
+    revokeReplacedDraftImageUrl(currentState.draftImage, snapshot.draftImage);
     lastDeletionSnapshot = null;
 
     set({
@@ -656,7 +683,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     });
   },
   clearDeletionUndo: () => {
-    disposeUndoSnapshot(lastDeletionSnapshot);
+    disposeUndoSnapshot(lastDeletionSnapshot, get().cards);
     lastDeletionSnapshot = null;
     set({
       canUndoDeletion: false,
@@ -731,12 +758,12 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
   },
   loadProjectSnapshot: (snapshot, draftImage = null) => {
     const currentState = get();
-    revokeCardImageUrls(currentState.cards);
     revokeDraftImageUrl(currentState.draftImage);
-    disposeUndoSnapshot(lastDeletionSnapshot);
+    disposeUndoSnapshot(lastDeletionSnapshot, currentState.cards);
     lastDeletionSnapshot = null;
 
     const normalized = normalizeProjectSnapshot(snapshot);
+    revokeUnusedCardImageUrls(currentState.cards, normalized.cards);
 
     set({
       cards: normalized.cards,
@@ -753,9 +780,9 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
   },
   resetProject: () => {
     const currentState = get();
-    revokeCardImageUrls(currentState.cards);
+    revokeUnusedCardImageUrls(currentState.cards, {});
     revokeDraftImageUrl(currentState.draftImage);
-    disposeUndoSnapshot(lastDeletionSnapshot);
+    disposeUndoSnapshot(lastDeletionSnapshot, {});
     lastDeletionSnapshot = null;
 
     set(createEmptyState());
