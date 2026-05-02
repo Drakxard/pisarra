@@ -1,6 +1,6 @@
 "use client";
 
-import type { DetailsTable, PendingImageAsset, ProjectSnapshot } from "@/lib/types";
+import type { DetailsImage, DetailsTable, PendingImageAsset, ProjectSnapshot } from "@/lib/types";
 
 const DB_NAME = "study-tree-projects";
 const DB_VERSION = 3;
@@ -280,9 +280,52 @@ function normalizeDetailsTable(value: unknown): DetailsTable | null {
   };
 }
 
+function normalizeDetailsImages(value: unknown): DetailsImage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((image): DetailsImage | null => {
+      if (!image || typeof image !== "object") {
+        return null;
+      }
+
+      const source = image as Partial<DetailsImage>;
+
+      if (!source.id || !source.path || !source.mimeType || !source.name) {
+        return null;
+      }
+
+      return {
+        id: source.id,
+        path: source.path,
+        mimeType: source.mimeType,
+        name: source.name,
+        x: typeof source.x === "number" && Number.isFinite(source.x) ? source.x : 0,
+        y: typeof source.y === "number" && Number.isFinite(source.y) ? source.y : 0,
+        width:
+          typeof source.width === "number" && Number.isFinite(source.width) && source.width > 0
+            ? source.width
+            : 320,
+        height:
+          typeof source.height === "number" && Number.isFinite(source.height) && source.height > 0
+            ? source.height
+            : 220,
+        rotation:
+          typeof source.rotation === "number" && Number.isFinite(source.rotation)
+            ? source.rotation
+            : 0,
+        previewUrl: source.previewUrl,
+        pendingBlob: null,
+      };
+    })
+    .filter((image): image is DetailsImage => Boolean(image));
+}
+
 function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot {
   return {
-    version: 3,
+    version: 4,
     cards: Object.fromEntries(
       Object.entries(snapshot.cards ?? {}).map(([cardId, card]) => [
         cardId,
@@ -290,6 +333,7 @@ function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot
           ...card,
           detailsText: typeof card.detailsText === "string" ? card.detailsText : "",
           detailsTable: normalizeDetailsTable(card.detailsTable),
+          detailsImages: normalizeDetailsImages(card.detailsImages),
         },
       ]),
     ),
@@ -301,6 +345,10 @@ function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot
 
 export function buildImageAssetPath(cardId: string, mimeType: string) {
   return `${ASSETS_DIRECTORY_NAME}/${cardId}.${getImageExtension(mimeType)}`;
+}
+
+export function buildDetailsImageAssetPath(cardId: string, imageId: string, mimeType: string) {
+  return `${ASSETS_DIRECTORY_NAME}/${cardId}-details-${imageId}.${getImageExtension(mimeType)}`;
 }
 
 export function supportsProjectDirectory() {
@@ -402,7 +450,7 @@ export async function readProjectSnapshot(handle: FileSystemDirectoryHandle) {
       throw new InvalidProjectFileError(error);
     }
 
-    if (parsed.version !== 2 && parsed.version !== 3) {
+    if (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4) {
       throw new IncompatibleProjectVersionError(
         typeof parsed.version === "number" ? parsed.version : null,
       );
@@ -432,24 +480,34 @@ export async function hydrateProjectSnapshotAssets(
 
   const entries = await Promise.all(
     Object.entries(snapshot.cards).map(async ([cardId, card]) => {
-      if (!card.image?.path) {
-        return [cardId, card] as const;
-      }
+      const mainImageFile = card.image?.path ? await readImageAsset(handle, card.image.path) : null;
+      const detailsImages = await Promise.all(
+        (card.detailsImages ?? []).map(async (image) => {
+          const imageFile = await readImageAsset(handle, image.path);
 
-      const imageFile = await readImageAsset(handle, card.image.path);
+          if (!imageFile) {
+            return image;
+          }
 
-      if (!imageFile) {
-        return [cardId, card] as const;
-      }
+          return {
+            ...image,
+            previewUrl: URL.createObjectURL(imageFile),
+          };
+        }),
+      );
 
       return [
         cardId,
         {
           ...card,
-          image: {
-            ...card.image,
-            previewUrl: URL.createObjectURL(imageFile),
-          },
+          detailsImages,
+          image:
+            card.image && mainImageFile
+              ? {
+                  ...card.image,
+                  previewUrl: URL.createObjectURL(mainImageFile),
+                }
+              : card.image,
         },
       ] as const;
     }),

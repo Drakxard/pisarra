@@ -1,11 +1,12 @@
 "use client";
 
 import { create } from "zustand";
-import { buildImageAssetPath } from "@/lib/project-persistence";
+import { buildDetailsImageAssetPath, buildImageAssetPath } from "@/lib/project-persistence";
 import type {
   CardPosition,
   CardSize,
   DetailsTable,
+  DetailsImage,
   DraftImage,
   PasteFeedback,
   PendingImageAsset,
@@ -64,6 +65,14 @@ type TreeStore = {
   ) => void;
   resizeDetailsTableColumn: (cardId: string, columnIndex: number, width: number) => void;
   resizeDetailsTableRow: (cardId: string, rowIndex: number, height: number) => void;
+  addDetailsImage: (
+    cardId: string,
+    image: DraftImage,
+    placement: { x: number; y: number; width: number; height: number },
+  ) => string | null;
+  moveDetailsImage: (cardId: string, imageId: string, position: CardPosition) => void;
+  resizeDetailsImage: (cardId: string, imageId: string, size: CardSize) => void;
+  rotateDetailsImage: (cardId: string, imageId: string, rotation: number) => void;
   selectCard: (cardId: string | null, options?: CardSelectionOptions) => void;
   openCard: (cardId: string) => void;
   closeCard: () => void;
@@ -154,6 +163,32 @@ function normalizeDetailsTable(value: DetailsTable | null | undefined): DetailsT
   };
 }
 
+function normalizeDetailsImages(value: DetailsImage[] | null | undefined): DetailsImage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const images: DetailsImage[] = [];
+
+  for (const image of value) {
+    if (!image?.id || !image.path || !image.mimeType || !image.name) {
+      continue;
+    }
+
+    images.push({
+        ...image,
+        x: Number.isFinite(image.x) ? image.x : 0,
+        y: Number.isFinite(image.y) ? image.y : 0,
+        width: Number.isFinite(image.width) && image.width > 0 ? image.width : 320,
+        height: Number.isFinite(image.height) && image.height > 0 ? image.height : 220,
+        rotation: Number.isFinite(image.rotation) ? image.rotation : 0,
+        pendingBlob: image.pendingBlob ?? null,
+    });
+  }
+
+  return images;
+}
+
 function clampTableSize(value: number | undefined, min: number, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.round(value)) : fallback;
 }
@@ -178,6 +213,7 @@ function cloneCard(card: QuestionCard): QuestionCard {
           insertedAfterText: card.detailsTable.insertedAfterText,
         }
       : null,
+    detailsImages: normalizeDetailsImages(card.detailsImages).map((image) => ({ ...image })),
     position: { ...card.position },
     size: card.size ? { ...card.size } : undefined,
     image: card.image
@@ -213,7 +249,10 @@ function revokeReplacedDraftImageUrl(
 function collectCardImageUrls(cards: Record<string, QuestionCard>) {
   return new Set(
     Object.values(cards)
-      .map((card) => card.image?.previewUrl)
+      .flatMap((card) => [
+        card.image?.previewUrl,
+        ...normalizeDetailsImages(card.detailsImages).map((image) => image.previewUrl),
+      ])
       .filter((previewUrl): previewUrl is string => Boolean(previewUrl)),
   );
 }
@@ -325,6 +364,7 @@ function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
         text: normalizeCardText(card.text ?? ""),
         detailsText: normalizeCardDetailsText(card.detailsText ?? ""),
         detailsTable: normalizeDetailsTable(card.detailsTable),
+        detailsImages: normalizeDetailsImages(card.detailsImages),
         position: {
           x: Number.isFinite(card.position?.x) ? card.position.x : AUTO_LAYOUT_PADDING,
           y: Number.isFinite(card.position?.y) ? card.position.y : AUTO_LAYOUT_PADDING,
@@ -359,7 +399,7 @@ function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
     snapshot.selectedCardId && cards[snapshot.selectedCardId] ? snapshot.selectedCardId : null;
 
   return {
-    version: 3,
+    version: 4,
     cards,
     selectedCardId,
     draftText: normalizeDraftText(snapshot.draftText ?? ""),
@@ -391,6 +431,17 @@ function createPersistedCard(card: QuestionCard): QuestionCard {
   return {
     ...card,
     detailsTable: normalizeDetailsTable(card.detailsTable),
+    detailsImages: normalizeDetailsImages(card.detailsImages).map((image) => ({
+      id: image.id,
+      path: image.path,
+      mimeType: image.mimeType,
+      name: image.name,
+      x: image.x,
+      y: image.y,
+      width: image.width,
+      height: image.height,
+      rotation: image.rotation,
+    })),
     position: { ...card.position },
     image: card.image
       ? {
@@ -508,6 +559,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       text: normalizedText,
       detailsText: "",
       detailsTable: null,
+      detailsImages: [],
       image: state.draftImage
         ? {
             path: buildImageAssetPath(id, state.draftImage.mimeType),
@@ -795,6 +847,143 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       snapshotUpdatedAt,
     });
   },
+  addDetailsImage: (cardId, image, placement) => {
+    const { cards } = get();
+    const card = cards[cardId];
+
+    if (!card) {
+      return null;
+    }
+
+    const imageId = makeId();
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const detailsImage: DetailsImage = {
+      id: imageId,
+      path: buildDetailsImageAssetPath(cardId, imageId, image.mimeType),
+      mimeType: image.mimeType,
+      name: image.name,
+      x: placement.x,
+      y: placement.y,
+      width: placement.width,
+      height: placement.height,
+      rotation: 0,
+      previewUrl: image.previewUrl,
+      pendingBlob: image.blob,
+    };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsImages: [...normalizeDetailsImages(card.detailsImages), detailsImage],
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+
+    return imageId;
+  },
+  moveDetailsImage: (cardId, imageId, position) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const detailsImages = normalizeDetailsImages(card?.detailsImages);
+    const imageIndex = detailsImages.findIndex((image) => image.id === imageId);
+
+    if (!card || imageIndex === -1) {
+      return;
+    }
+
+    const image = detailsImages[imageIndex];
+
+    if (image.x === position.x && image.y === position.y) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const nextImages = [...detailsImages];
+    nextImages[imageIndex] = { ...image, x: position.x, y: position.y };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsImages: nextImages,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  resizeDetailsImage: (cardId, imageId, size) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const detailsImages = normalizeDetailsImages(card?.detailsImages);
+    const imageIndex = detailsImages.findIndex((image) => image.id === imageId);
+
+    if (!card || imageIndex === -1) {
+      return;
+    }
+
+    const image = detailsImages[imageIndex];
+    const width = Math.max(48, Math.round(size.width));
+    const height = Math.max(48, Math.round(size.height));
+
+    if (image.width === width && image.height === height) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const nextImages = [...detailsImages];
+    nextImages[imageIndex] = { ...image, width, height };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsImages: nextImages,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  rotateDetailsImage: (cardId, imageId, rotation) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const detailsImages = normalizeDetailsImages(card?.detailsImages);
+    const imageIndex = detailsImages.findIndex((image) => image.id === imageId);
+
+    if (!card || imageIndex === -1) {
+      return;
+    }
+
+    const image = detailsImages[imageIndex];
+    const nextRotation = Math.round(rotation);
+
+    if (image.rotation === nextRotation) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const nextImages = [...detailsImages];
+    nextImages[imageIndex] = { ...image, rotation: nextRotation };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsImages: nextImages,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
   selectCard: (cardId, options) => {
     const { cards, nextZIndex } = get();
 
@@ -990,7 +1179,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     const { cards, selectedCardId, draftText } = get();
 
     return {
-      version: 3,
+      version: 4,
       cards: Object.fromEntries(
         Object.entries(cards).map(([cardId, card]) => [cardId, createPersistedCard(card)]),
       ),
@@ -1000,13 +1189,23 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     };
   },
   getPendingImageAssets: () => {
-    return Object.values(get().cards)
-      .filter((card) => card.image?.pendingBlob)
-      .map((card) => ({
+    return Object.values(get().cards).flatMap((card) => [
+      ...(card.image?.pendingBlob
+        ? [{
         cardId: card.id,
         path: card.image!.path,
         blob: card.image!.pendingBlob!,
-      }));
+        }]
+        : []),
+      ...normalizeDetailsImages(card.detailsImages)
+        .filter((image) => image.pendingBlob)
+        .map((image) => ({
+          cardId: card.id,
+          detailsImageId: image.id,
+          path: image.path,
+          blob: image.pendingBlob!,
+        })),
+    ]);
   },
   markCardImagesPersisted: (cardIds) => {
     if (cardIds.length === 0) {
@@ -1020,18 +1219,35 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     for (const cardId of cardIds) {
       const card = nextCards[cardId];
 
-      if (!card?.image?.pendingBlob) {
-        continue;
+      let nextCard = card;
+
+      if (card?.image?.pendingBlob) {
+        nextCard = {
+          ...nextCard,
+          image: {
+            ...card.image,
+            pendingBlob: null,
+          },
+        };
+        hasChanged = true;
       }
 
-      nextCards[cardId] = {
-        ...card,
-        image: {
-          ...card.image,
-          pendingBlob: null,
-        },
-      };
-      hasChanged = true;
+      const detailsImages = normalizeDetailsImages(card?.detailsImages);
+      const nextDetailsImages = detailsImages.map((image) =>
+        image.pendingBlob ? { ...image, pendingBlob: null } : image,
+      );
+
+      if (nextDetailsImages.some((image, index) => image !== detailsImages[index])) {
+        nextCard = {
+          ...nextCard,
+          detailsImages: nextDetailsImages,
+        };
+        hasChanged = true;
+      }
+
+      if (nextCard !== card) {
+        nextCards[cardId] = nextCard;
+      }
     }
 
     if (!hasChanged) {

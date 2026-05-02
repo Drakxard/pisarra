@@ -25,11 +25,26 @@ export type DetailsTable = {
   insertedAfterText: boolean;
 };
 
+export type DetailsImage = {
+  id: string;
+  path: string;
+  mimeType: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  previewUrl?: string;
+  pendingBlob?: Blob | null;
+};
+
 export type QuestionCard = {
   id: string;
   text: string;
   detailsText: string;
   detailsTable?: DetailsTable | null;
+  detailsImages?: DetailsImage[];
   image: QuestionCardImage | null;
   position: CardPosition;
   size?: CardSize;
@@ -53,7 +68,7 @@ export type DraftState = {
 };
 
 export type ProjectSnapshot = {
-  version: 3;
+  version: 4;
   cards: Record<string, QuestionCard>;
   selectedCardId: string | null;
   draftText: string;
@@ -64,6 +79,7 @@ export type PendingImageAsset = {
   cardId: string;
   path: string;
   blob: Blob;
+  detailsImageId?: string;
 };
 
 export type SearchFeedback = "none" | "no-results";
