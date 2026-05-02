@@ -73,14 +73,28 @@ export type StudyCategory = {
   cards: Record<string, QuestionCard>;
   selectedCardId: string | null;
   draftText: string;
+  sections: Record<string, StudySection>;
+  activeSectionId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StudySection = {
+  id: string;
+  name: string;
+  cards: Record<string, QuestionCard>;
+  selectedCardId: string | null;
+  draftText: string;
   createdAt: string;
   updatedAt: string;
 };
 
 export type ProjectSnapshot = {
-  version: 5;
+  version: 6;
   categories: Record<string, StudyCategory>;
   activeCategoryId: string | null;
+  activeMapKind?: "main" | "section" | null;
+  activeSectionId?: string | null;
   categoryDraftText: string;
   selectedCategoryId: string | null;
   cards?: Record<string, QuestionCard>;

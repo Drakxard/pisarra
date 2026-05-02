@@ -1,48 +1,72 @@
 {
-  "version": 2,
-  "cards": {
-    "12f4d6b9-bfe2-451a-8791-6a1e86569d96": {
-      "id": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
-      "text": "ejemplo",
-      "detailsText": "La integral definida de $y = x$ evaluada desde $1$ hasta $2$ es **$1.5$** (o $\\frac{3}{2}$).\n\n1. **Encontrar la antiderivada:** La integral indefinida de $x$ es $\\frac{x^2}{2}$.\n2. **Evaluar los límites (Regla de Barrow):** Aplicamos los límites de integración de $1$ a $2$:\n   $$ \\int_{1}^{2} x \\, dx = \\left[ \\frac{x^2}{2} \\right]_{1}^{2} $$\n3. **Calcular la diferencia:**\n   $$ \\left( \\frac{2^2}{2} \\right) - \\left( \\frac{1^2}{2} \\right) = \\frac{4}{2} - \\frac{1}{2} = 2 - 0.5 = 1.5 $$",
-      "image": {
-        "path": "study-assets/12f4d6b9-bfe2-451a-8791-6a1e86569d96.png",
-        "mimeType": "image/png",
-        "name": "image.png",
-        "width": 1366,
-        "height": 768
+  "version": 5,
+  "categories": {
+    "84490347-c853-461d-9d68-7437b9d512ff": {
+      "id": "84490347-c853-461d-9d68-7437b9d512ff",
+      "name": "Ejemplo",
+      "cards": {
+        "12f4d6b9-bfe2-451a-8791-6a1e86569d96": {
+          "id": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
+          "text": "ejemplo",
+          "detailsText": "La integral definida de $y = x$ evaluada desde $1$ hasta $2$ es **$1.5$** (o $\\frac{3}{2}$).\n\n1. **Encontrar la antiderivada:** La integral indefinida de $x$ es $\\frac{x^2}{2}$.\n2. **Evaluar los límites (Regla de Barrow):** Aplicamos los límites de integración de $1$ a $2$:\n   $$ \\int_{1}^{2} x \\, dx = \\left[ \\frac{x^2}{2} \\right]_{1}^{2} $$\n3. **Calcular la diferencia:**\n   $$ \\left( \\frac{2^2}{2} \\right) - \\left( \\frac{1^2}{2} \\right) = \\frac{4}{2} - \\frac{1}{2} = 2 - 0.5 = 1.5 $$",
+          "image": {
+            "path": "study-assets/12f4d6b9-bfe2-451a-8791-6a1e86569d96.png",
+            "mimeType": "image/png",
+            "name": "image.png",
+            "width": 1366,
+            "height": 768
+          },
+          "position": {
+            "x": 17,
+            "y": 18.25
+          },
+          "zIndex": 55,
+          "createdAt": "2026-04-30T15:15:54.109Z",
+          "updatedAt": "2026-05-02T19:20:15.030Z",
+          "size": {
+            "width": 384,
+            "height": 262
+          },
+          "detailsTable": null,
+          "detailsImages": []
+        },
+        "8ef54f07-07f0-4d55-aa07-c4f97939c0a6": {
+          "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
+          "text": "Sabado",
+          "detailsText": "Enfocarse\n\n-- Cursado--\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica: aprenderlo bien, lunes repaso\nLógica: Parcial\nProb: Planera proy final, muestra parcial\n--\n--Mesas--\nÁlgebra y Cálculo 2: Debería, tener un \"cronograma tentativo\", faltan 8 semanas/2 meses\n\n\nMientras lo veo, debo ir recolectando lo que podria complicarse, texto sutil\nAdemas, ir lineal respecto a los temas. \nPodcast de los teoremas?",
+          "image": null,
+          "position": {
+            "x": 497,
+            "y": 48
+          },
+          "zIndex": 59,
+          "createdAt": "2026-05-02T19:14:11.647Z",
+          "updatedAt": "2026-05-02T20:16:01.883Z",
+          "size": {
+            "width": 384,
+            "height": 58
+          },
+          "detailsTable": null,
+          "detailsImages": []
+        }
       },
-      "position": {
-        "x": 17,
-        "y": 18.25
-      },
-      "zIndex": 55,
-      "createdAt": "2026-04-30T15:15:54.109Z",
-      "updatedAt": "2026-05-02T19:20:15.030Z",
-      "size": {
-        "width": 320,
-        "height": 227
-      }
+      "selectedCardId": null,
+      "draftText": "",
+      "createdAt": "2026-05-02T20:15:43.876Z",
+      "updatedAt": "2026-05-02T20:16:02.271Z"
     },
-    "8ef54f07-07f0-4d55-aa07-c4f97939c0a6": {
-      "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
-      "text": "Sabado",
-      "detailsText": "Enfocarse\n\n-- Cursado--\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica: aprenderlo bien, lunes repaso\nLógica: Parcial\nProb: Planera proy final, muestra parcial\n--\n--Mesas--\nÁlgebra y Cálculo 2: Debería, tener un \"cronograma tentativo\", faltan 8 semanas/2 meses\n\n\nMientras lo veo, debo ir recolectando lo que podria complicarse, texto sutil\nAdemas, ir lineal respecto a los temas. \nPodcast de los teoremas?",
-      "image": null,
-      "position": {
-        "x": 465,
-        "y": -14
-      },
-      "zIndex": 58,
-      "createdAt": "2026-05-02T19:14:11.647Z",
-      "updatedAt": "2026-05-02T19:53:31.876Z",
-      "size": {
-        "width": 320,
-        "height": 54
-      }
+    "8cba1abf-a832-4167-88e0-39adb306e5b2": {
+      "id": "8cba1abf-a832-4167-88e0-39adb306e5b2",
+      "name": "Ejemplo2",
+      "cards": {},
+      "selectedCardId": null,
+      "draftText": "",
+      "createdAt": "2026-05-02T20:16:10.263Z",
+      "updatedAt": "2026-05-02T20:16:12.769Z"
     }
   },
-  "selectedCardId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
-  "draftText": "",
-  "savedAt": "2026-05-02T19:53:31.876Z"
+  "activeCategoryId": null,
+  "selectedCategoryId": "84490347-c853-461d-9d68-7437b9d512ff",
+  "categoryDraftText": "",
+  "savedAt": "2026-05-02T20:16:12.769Z"
 }

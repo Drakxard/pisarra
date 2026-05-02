@@ -15,6 +15,7 @@ import type {
   SearchFeedback,
   SearchResult,
   StudyCategory,
+  StudySection,
 } from "@/lib/types";
 
 type UndoSnapshot = {
@@ -33,6 +34,8 @@ type CardSelectionOptions = {
 type TreeStore = {
   categories: Record<string, StudyCategory>;
   activeCategoryId: string | null;
+  activeMapKind: "main" | "section" | null;
+  activeSectionId: string | null;
   selectedCategoryId: string | null;
   categoryDraftText: string;
   cards: Record<string, QuestionCard>;
@@ -53,7 +56,12 @@ type TreeStore = {
   renameCategory: (categoryId: string, name: string) => void;
   selectCategory: (categoryId: string | null) => void;
   openCategory: (categoryId: string) => void;
+  openMainCategoryMap: (categoryId: string) => void;
+  openCategorySection: (categoryId: string, sectionId: string) => void;
   closeCategory: () => void;
+  closeActiveMap: () => void;
+  selectNextCategory: () => void;
+  selectPreviousCategory: () => void;
   appendCategoryDraftCharacter: (value: string) => void;
   backspaceCategoryDraft: () => void;
   clearCategoryDraft: () => void;
@@ -118,6 +126,11 @@ const DEFAULT_TABLE_COLUMN_WIDTH = 160;
 const DEFAULT_TABLE_ROW_HEIGHT = 48;
 const MIN_TABLE_COLUMN_WIDTH = 72;
 const MIN_TABLE_ROW_HEIGHT = 36;
+const FIXED_SECTIONS = [
+  ["definitions", "Definiciones"],
+  ["theorems", "Teoremas"],
+  ["exams", "Parciales"],
+] as const;
 
 const makeId = () => crypto.randomUUID();
 let lastDeletionSnapshot: UndoSnapshot | null = null;
@@ -216,6 +229,30 @@ function createDefaultDetailsTable(): DetailsTable {
   };
 }
 
+function createEmptySection(id: string, name: string, timestamp: string): StudySection {
+  return {
+    id,
+    name,
+    cards: {},
+    selectedCardId: null,
+    draftText: "",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function ensureFixedSections(sections: Record<string, StudySection> | undefined, timestamp: string) {
+  const nextSections = { ...(sections ?? {}) };
+
+  for (const [id, name] of FIXED_SECTIONS) {
+    if (!nextSections[id]) {
+      nextSections[id] = createEmptySection(id, name, timestamp);
+    }
+  }
+
+  return nextSections;
+}
+
 function cloneCard(card: QuestionCard): QuestionCard {
   return {
     ...card,
@@ -246,6 +283,7 @@ function cloneCategory(category: StudyCategory): StudyCategory {
   return {
     ...category,
     cards: cloneCards(category.cards),
+    sections: cloneSections(category.sections),
   };
 }
 
@@ -253,6 +291,35 @@ function cloneCategories(categories: Record<string, StudyCategory>) {
   return Object.fromEntries(
     Object.entries(categories).map(([categoryId, category]) => [categoryId, cloneCategory(category)]),
   );
+}
+
+function cloneSection(section: StudySection): StudySection {
+  return {
+    ...section,
+    cards: cloneCards(section.cards),
+  };
+}
+
+function cloneSections(sections: Record<string, StudySection> = {}) {
+  return Object.fromEntries(
+    Object.entries(sections).map(([sectionId, section]) => [sectionId, cloneSection(section)]),
+  );
+}
+
+function getAllCategoryCards(category: StudyCategory) {
+  return [
+    ...Object.values(category.cards),
+    ...Object.values(category.sections ?? {}).flatMap((section) => Object.values(section.cards)),
+  ];
+}
+
+function getAllCardsFromCategories(categories: Record<string, StudyCategory>) {
+  return Object.values(categories).flatMap(getAllCategoryCards);
+}
+
+function getSelectedCategoryIndex(categories: StudyCategory[], selectedCategoryId: string | null) {
+  const selectedIndex = categories.findIndex((category) => category.id === selectedCategoryId);
+  return selectedIndex >= 0 ? selectedIndex : 0;
 }
 
 function revokeDraftImageUrl(draftImage: DraftImage | null) {
@@ -318,6 +385,8 @@ function createEmptyState() {
   return {
     categories: {} as Record<string, StudyCategory>,
     activeCategoryId: null as string | null,
+    activeMapKind: null as "main" | "section" | null,
+    activeSectionId: null as string | null,
     selectedCategoryId: null as string | null,
     categoryDraftText: "",
     cards: {} as Record<string, QuestionCard>,
@@ -340,7 +409,27 @@ function createCategorySnapshot(
   selectedCardId: string | null,
   draftText: string,
   timestamp: string,
+  mapKind: "main" | "section" | null,
+  sectionId: string | null,
 ): StudyCategory {
+  if (mapKind === "section" && sectionId && category.sections[sectionId]) {
+    return {
+      ...category,
+      activeSectionId: sectionId,
+      sections: {
+        ...category.sections,
+        [sectionId]: {
+          ...category.sections[sectionId],
+          cards: cloneCards(cards),
+          selectedCardId: selectedCardId && cards[selectedCardId] ? selectedCardId : null,
+          draftText,
+          updatedAt: timestamp,
+        },
+      },
+      updatedAt: timestamp,
+    };
+  }
+
   return {
     ...category,
     cards: cloneCards(cards),
@@ -363,6 +452,8 @@ function getSyncedCategories(state: TreeStore) {
       state.selectedCardId,
       state.draftText,
       state.snapshotUpdatedAt,
+      state.activeMapKind,
+      state.activeSectionId,
     ),
   };
 }
@@ -462,6 +553,12 @@ function normalizeCards(sourceCards: Record<string, QuestionCard> = {}) {
 function normalizeCategory(category: StudyCategory): StudyCategory {
   const timestamp = createSnapshotTimestamp();
   const cards = normalizeCards(category.cards);
+  const sections = Object.fromEntries(
+    Object.entries(ensureFixedSections(category.sections, timestamp)).map(([sectionId, section]) => [
+      sectionId,
+      normalizeSection({ ...section, id: section.id || sectionId }),
+    ]),
+  );
 
   return {
     id: category.id || makeId(),
@@ -469,8 +566,25 @@ function normalizeCategory(category: StudyCategory): StudyCategory {
     cards,
     selectedCardId: category.selectedCardId && cards[category.selectedCardId] ? category.selectedCardId : null,
     draftText: normalizeDraftText(category.draftText ?? ""),
+    sections,
+    activeSectionId: category.activeSectionId && sections[category.activeSectionId] ? category.activeSectionId : null,
     createdAt: typeof category.createdAt === "string" ? category.createdAt : timestamp,
     updatedAt: typeof category.updatedAt === "string" ? category.updatedAt : timestamp,
+  };
+}
+
+function normalizeSection(section: StudySection): StudySection {
+  const timestamp = createSnapshotTimestamp();
+  const cards = normalizeCards(section.cards);
+
+  return {
+    id: section.id,
+    name: normalizeCardText(section.name || "Sin nombre") || "Sin nombre",
+    cards,
+    selectedCardId: section.selectedCardId && cards[section.selectedCardId] ? section.selectedCardId : null,
+    draftText: normalizeDraftText(section.draftText ?? ""),
+    createdAt: typeof section.createdAt === "string" ? section.createdAt : timestamp,
+    updatedAt: typeof section.updatedAt === "string" ? section.updatedAt : timestamp,
   };
 }
 
@@ -507,9 +621,11 @@ function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
       : Object.keys(categories)[0] ?? null;
 
   return {
-    version: 5,
+    version: 6,
     categories,
     activeCategoryId: null,
+    activeMapKind: null,
+    activeSectionId: null,
     selectedCategoryId,
     categoryDraftText: normalizeDraftText(snapshot.categoryDraftText ?? ""),
     savedAt: typeof snapshot.savedAt === "string" ? snapshot.savedAt : "",
@@ -570,6 +686,26 @@ function createPersistedCategory(category: StudyCategory): StudyCategory {
     cards: Object.fromEntries(
       Object.entries(category.cards).map(([cardId, card]) => [cardId, createPersistedCard(card)]),
     ),
+    sections: Object.fromEntries(
+      Object.entries(ensureFixedSections(category.sections, category.updatedAt)).map(
+        ([sectionId, section]) => [
+          sectionId,
+          {
+            ...section,
+            cards: Object.fromEntries(
+              Object.entries(section.cards).map(([cardId, card]) => [
+                cardId,
+                createPersistedCard(card),
+              ]),
+            ),
+            selectedCardId:
+              section.selectedCardId && section.cards[section.selectedCardId]
+                ? section.selectedCardId
+                : null,
+          },
+        ],
+      ),
+    ),
     selectedCardId:
       category.selectedCardId && category.cards[category.selectedCardId]
         ? category.selectedCardId
@@ -595,6 +731,8 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       cards: {},
       selectedCardId: null,
       draftText: "",
+      sections: ensureFixedSections(undefined, timestamp),
+      activeSectionId: null,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -643,6 +781,9 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     });
   },
   openCategory: (categoryId) => {
+    get().openMainCategoryMap(categoryId);
+  },
+  openMainCategoryMap: (categoryId) => {
     const state = get();
     const categories = getSyncedCategories(state);
     const category = categories[categoryId];
@@ -658,6 +799,8 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     set({
       categories,
       activeCategoryId: categoryId,
+      activeMapKind: "main",
+      activeSectionId: null,
       selectedCategoryId: categoryId,
       cards: cloneCards(category.cards),
       selectedCardId: category.selectedCardId,
@@ -670,7 +813,49 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       ...getEmptyPasteFeedback(),
     });
   },
+  openCategorySection: (categoryId, sectionId) => {
+    const state = get();
+    const categories = getSyncedCategories(state);
+    const category = categories[categoryId];
+    const sections = category ? ensureFixedSections(category.sections, createSnapshotTimestamp()) : {};
+    const section = sections[sectionId];
+
+    if (!category || !section) {
+      return;
+    }
+
+    disposeUndoSnapshot(lastDeletionSnapshot, state.cards);
+    lastDeletionSnapshot = null;
+    revokeDraftImageUrl(state.draftImage);
+
+    set({
+      categories: {
+        ...categories,
+        [categoryId]: {
+          ...category,
+          sections,
+          activeSectionId: sectionId,
+        },
+      },
+      activeCategoryId: categoryId,
+      activeMapKind: "section",
+      activeSectionId: sectionId,
+      selectedCategoryId: categoryId,
+      cards: cloneCards(section.cards),
+      selectedCardId: section.selectedCardId,
+      openedCardId: null,
+      draftText: section.draftText,
+      draftImage: null,
+      canUndoDeletion: false,
+      nextZIndex: getNextZIndex(section.cards),
+      ...getEmptySearchState(),
+      ...getEmptyPasteFeedback(),
+    });
+  },
   closeCategory: () => {
+    get().closeActiveMap();
+  },
+  closeActiveMap: () => {
     const state = get();
 
     if (!state.activeCategoryId) {
@@ -683,6 +868,8 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       categories: getSyncedCategories(state),
       selectedCategoryId: state.activeCategoryId,
       activeCategoryId: null,
+      activeMapKind: null,
+      activeSectionId: null,
       cards: {},
       selectedCardId: null,
       openedCardId: null,
@@ -692,6 +879,38 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       nextZIndex: 1,
       ...getEmptySearchState(),
       ...getEmptyPasteFeedback(),
+    });
+  },
+  selectNextCategory: () => {
+    const state = get();
+    const categories = Object.values(getSyncedCategories(state)).sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt),
+    );
+
+    if (categories.length === 0) {
+      return;
+    }
+
+    const currentIndex = getSelectedCategoryIndex(categories, state.selectedCategoryId);
+    set({
+      categories: Object.fromEntries(categories.map((category) => [category.id, category])),
+      selectedCategoryId: categories[(currentIndex + 1) % categories.length].id,
+    });
+  },
+  selectPreviousCategory: () => {
+    const state = get();
+    const categories = Object.values(getSyncedCategories(state)).sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt),
+    );
+
+    if (categories.length === 0) {
+      return;
+    }
+
+    const currentIndex = getSelectedCategoryIndex(categories, state.selectedCategoryId);
+    set({
+      categories: Object.fromEntries(categories.map((category) => [category.id, category])),
+      selectedCategoryId: categories[(currentIndex - 1 + categories.length) % categories.length].id,
     });
   },
   appendCategoryDraftCharacter: (value) => {
@@ -1443,7 +1662,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     const categories = getSyncedCategories(state);
 
     return {
-      version: 5,
+      version: 6,
       categories: Object.fromEntries(
         Object.entries(categories).map(([categoryId, category]) => [
           categoryId,
@@ -1451,6 +1670,8 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         ]),
       ),
       activeCategoryId: null,
+      activeMapKind: null,
+      activeSectionId: null,
       selectedCategoryId:
         state.selectedCategoryId && categories[state.selectedCategoryId]
           ? state.selectedCategoryId
@@ -1460,9 +1681,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     };
   },
   getPendingImageAssets: () => {
-    const cards = Object.values(getSyncedCategories(get())).flatMap((category) =>
-      Object.values(category.cards),
-    );
+    const cards = getAllCardsFromCategories(getSyncedCategories(get()));
 
     return cards.flatMap((card) => [
       ...(card.image?.pendingBlob
@@ -1492,8 +1711,8 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     let hasChanged = false;
     const nextCategories = { ...categories };
 
-    for (const category of Object.values(nextCategories)) {
-      const nextCards = { ...category.cards };
+    const clearPendingBlobs = (sourceCards: Record<string, QuestionCard>) => {
+      const nextCards = { ...sourceCards };
 
       for (const cardId of cardIds) {
         const card = nextCards[cardId];
@@ -1533,9 +1752,25 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         }
       }
 
+      return nextCards;
+    };
+
+    for (const category of Object.values(nextCategories)) {
+      const nextCards = clearPendingBlobs(category.cards);
+      const nextSections = Object.fromEntries(
+        Object.entries(category.sections).map(([sectionId, section]) => [
+          sectionId,
+          {
+            ...section,
+            cards: clearPendingBlobs(section.cards),
+          },
+        ]),
+      );
+
       nextCategories[category.id] = {
         ...category,
         cards: nextCards,
+        sections: nextSections,
       };
     }
 
@@ -1547,7 +1782,11 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       categories: nextCategories,
       cards:
         state.activeCategoryId && nextCategories[state.activeCategoryId]
-          ? cloneCards(nextCategories[state.activeCategoryId].cards)
+          ? state.activeMapKind === "section" &&
+            state.activeSectionId &&
+            nextCategories[state.activeCategoryId].sections[state.activeSectionId]
+            ? cloneCards(nextCategories[state.activeCategoryId].sections[state.activeSectionId].cards)
+            : cloneCards(nextCategories[state.activeCategoryId].cards)
           : state.cards,
     });
   },
@@ -1558,15 +1797,16 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     lastDeletionSnapshot = null;
 
     const normalized = normalizeProjectSnapshot(snapshot);
-    const nextCards = Object.values(normalized.categories).reduce(
-      (accumulator, category) => ({ ...accumulator, ...category.cards }),
-      {} as Record<string, QuestionCard>,
+    const nextCards = Object.fromEntries(
+      getAllCardsFromCategories(normalized.categories).map((card) => [card.id, card]),
     );
     revokeUnusedCardImageUrls(currentState.cards, nextCards);
 
     set({
       categories: normalized.categories,
       activeCategoryId: null,
+      activeMapKind: null,
+      activeSectionId: null,
       selectedCategoryId: normalized.selectedCategoryId,
       categoryDraftText: normalized.categoryDraftText,
       cards: {},

@@ -7,6 +7,7 @@ import type {
   ProjectSnapshot,
   QuestionCard,
   StudyCategory,
+  StudySection,
 } from "@/lib/types";
 
 const DB_NAME = "study-tree-projects";
@@ -17,6 +18,11 @@ const HANDLE_STORE_NAME = "handles";
 const DIRECTORY_KEY = "active-project-directory";
 const PROJECT_FILE_NAME = "study-tree.json";
 const ASSETS_DIRECTORY_NAME = "study-assets";
+const FIXED_SECTIONS = [
+  ["definitions", "Definiciones"],
+  ["theorems", "Teoremas"],
+  ["exams", "Parciales"],
+] as const;
 
 type FileSystemPermissionMode = "read" | "readwrite";
 type RawProjectSnapshot = Partial<Omit<ProjectSnapshot, "version">> & {
@@ -346,6 +352,51 @@ function normalizeCards(value: unknown) {
   );
 }
 
+function createEmptySection(id: string, name: string, timestamp: string): StudySection {
+  return {
+    id,
+    name,
+    cards: {},
+    selectedCardId: null,
+    draftText: "",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function normalizeSection(sectionId: string, value: unknown, timestamp: string): StudySection {
+  const source = value && typeof value === "object" ? (value as Partial<StudySection>) : {};
+  const cards = normalizeCards(source.cards);
+
+  return {
+    id: typeof source.id === "string" && source.id ? source.id : sectionId,
+    name: typeof source.name === "string" && source.name.trim() ? source.name.trim() : "Sin nombre",
+    cards,
+    selectedCardId: source.selectedCardId && cards[source.selectedCardId] ? source.selectedCardId : null,
+    draftText: typeof source.draftText === "string" ? source.draftText : "",
+    createdAt: typeof source.createdAt === "string" ? source.createdAt : timestamp,
+    updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : timestamp,
+  };
+}
+
+function normalizeSections(value: unknown, timestamp: string) {
+  const sourceSections =
+    value && typeof value === "object" ? { ...(value as Record<string, unknown>) } : {};
+
+  for (const [sectionId, sectionName] of FIXED_SECTIONS) {
+    if (!sourceSections[sectionId]) {
+      sourceSections[sectionId] = createEmptySection(sectionId, sectionName, timestamp);
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(sourceSections).map(([sectionId, section]) => [
+      sectionId,
+      normalizeSection(sectionId, section, timestamp),
+    ]),
+  );
+}
+
 function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot {
   const timestamp = new Date().toISOString();
   const legacyCards = normalizeCards(snapshot.cards);
@@ -368,6 +419,7 @@ function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot
     Object.entries(sourceCategories).map(([categoryId, category]) => {
       const source = category as StudyCategory;
       const cards = normalizeCards(source.cards);
+      const sections = normalizeSections(source.sections, timestamp);
 
       return [
         categoryId,
@@ -377,6 +429,9 @@ function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot
           cards,
           selectedCardId: source.selectedCardId && cards[source.selectedCardId] ? source.selectedCardId : null,
           draftText: typeof source.draftText === "string" ? source.draftText : "",
+          sections,
+          activeSectionId:
+            source.activeSectionId && sections[source.activeSectionId] ? source.activeSectionId : null,
           createdAt: typeof source.createdAt === "string" ? source.createdAt : timestamp,
           updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : timestamp,
         } satisfies StudyCategory,
@@ -385,9 +440,11 @@ function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot
   );
 
   return {
-    version: 5,
+    version: 6,
     categories,
     activeCategoryId: null,
+    activeMapKind: null,
+    activeSectionId: null,
     selectedCategoryId:
       snapshot.selectedCategoryId && categories[snapshot.selectedCategoryId]
         ? snapshot.selectedCategoryId
@@ -504,7 +561,13 @@ export async function readProjectSnapshot(handle: FileSystemDirectoryHandle) {
       throw new InvalidProjectFileError(error);
     }
 
-    if (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5) {
+    if (
+      parsed.version !== 2 &&
+      parsed.version !== 3 &&
+      parsed.version !== 4 &&
+      parsed.version !== 5 &&
+      parsed.version !== 6
+    ) {
       throw new IncompatibleProjectVersionError(
         typeof parsed.version === "number" ? parsed.version : null,
       );
@@ -570,12 +633,31 @@ export async function hydrateProjectSnapshotAssets(
           await hydrateCard(cardId, card),
         ] as const),
       );
+      const sectionEntries = await Promise.all(
+        Object.entries(category.sections).map(async ([sectionId, section]) => {
+          const sectionCardEntries = await Promise.all(
+            Object.entries(section.cards).map(async ([cardId, card]) => [
+              cardId,
+              await hydrateCard(cardId, card),
+            ] as const),
+          );
+
+          return [
+            sectionId,
+            {
+              ...section,
+              cards: Object.fromEntries(sectionCardEntries),
+            },
+          ] as const;
+        }),
+      );
 
       return [
         categoryId,
         {
           ...category,
           cards: Object.fromEntries(cardEntries),
+          sections: Object.fromEntries(sectionEntries),
         },
       ] as const;
     }),
