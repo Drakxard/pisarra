@@ -13,12 +13,12 @@
         "height": 768
       },
       "position": {
-        "x": 167,
-        "y": 41.25
+        "x": 17,
+        "y": 18.25
       },
-      "zIndex": 50,
+      "zIndex": 55,
       "createdAt": "2026-04-30T15:15:54.109Z",
-      "updatedAt": "2026-05-02T19:13:47.752Z",
+      "updatedAt": "2026-05-02T19:20:15.030Z",
       "size": {
         "width": 384,
         "height": 262
@@ -27,15 +27,15 @@
     "8ef54f07-07f0-4d55-aa07-c4f97939c0a6": {
       "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
       "text": "Sabado",
-      "detailsText": "Enfocarse\n\n\n\n\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica aprenderlo bien, lunes repaso\n Lógica ->Parcial",
+      "detailsText": "Enfocarse\n\n-- Cursado--\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica: aprenderlo bien, lunes repaso\nLógica: Parcial\nProb: Planera proy final, muestra parcial\n--\n--Mesas--\nÁlgebra y Cálculo 2: Debería, tener un \"cronograma tentativo\", faltan 8 semanas/2 meses",
       "image": null,
       "position": {
-        "x": 414,
-        "y": -23
+        "x": 465,
+        "y": -14
       },
-      "zIndex": 52,
+      "zIndex": 57,
       "createdAt": "2026-05-02T19:14:11.647Z",
-      "updatedAt": "2026-05-02T19:17:29.819Z",
+      "updatedAt": "2026-05-02T19:21:49.248Z",
       "size": {
         "width": 384,
         "height": 58
@@ -44,5 +44,5 @@
   },
   "selectedCardId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
   "draftText": "",
-  "savedAt": "2026-05-02T19:17:29.819Z"
+  "savedAt": "2026-05-02T19:21:49.248Z"
 }
