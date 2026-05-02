@@ -27,7 +27,7 @@
     "8ef54f07-07f0-4d55-aa07-c4f97939c0a6": {
       "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
       "text": "Sabado",
-      "detailsText": "Enfocate",
+      "detailsText": "Enfocarse\n\n\n\n\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica aprenderlo bien, lunes repaso\n Lógica ->Parcial",
       "image": null,
       "position": {
         "x": 414,
@@ -35,7 +35,7 @@
       },
       "zIndex": 52,
       "createdAt": "2026-05-02T19:14:11.647Z",
-      "updatedAt": "2026-05-02T19:14:55.989Z",
+      "updatedAt": "2026-05-02T19:17:29.819Z",
       "size": {
         "width": 384,
         "height": 58
@@ -44,5 +44,5 @@
   },
   "selectedCardId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
   "draftText": "",
-  "savedAt": "2026-05-02T19:14:55.989Z"
+  "savedAt": "2026-05-02T19:17:29.819Z"
 }
