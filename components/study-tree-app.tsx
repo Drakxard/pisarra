@@ -1179,6 +1179,7 @@ export function StudyTreeApp() {
     moveDetailsImage,
     resizeDetailsImage,
     rotateDetailsImage,
+    deleteDetailsImage,
     selectCard,
     openCard,
     closeCard,
@@ -1553,6 +1554,20 @@ export function StudyTreeApp() {
         appendCategoryDraftCharacter(event.key);
       }
 
+      return;
+    }
+
+    if (
+      openedCardId &&
+      selectedDetailsImageId &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      (event.key === "Delete" || event.key === "Backspace")
+    ) {
+      event.preventDefault();
+      deleteDetailsImage(openedCardId, selectedDetailsImageId);
+      setSelectedDetailsImageId(null);
       return;
     }
 
@@ -2487,11 +2502,6 @@ export function StudyTreeApp() {
                   openedCardId: openedCard.id,
                 },
               );
-            }}
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) {
-                closeCard();
-              }
             }}
           >
             <div

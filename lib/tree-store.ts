@@ -95,6 +95,7 @@ type TreeStore = {
   moveDetailsImage: (cardId: string, imageId: string, position: CardPosition) => void;
   resizeDetailsImage: (cardId: string, imageId: string, size: CardSize) => void;
   rotateDetailsImage: (cardId: string, imageId: string, rotation: number) => void;
+  deleteDetailsImage: (cardId: string, imageId: string) => void;
   selectCard: (cardId: string | null, options?: CardSelectionOptions) => void;
   openCard: (cardId: string) => void;
   closeCard: () => void;
@@ -1454,6 +1455,35 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     const snapshotUpdatedAt = createSnapshotTimestamp();
     const nextImages = [...detailsImages];
     nextImages[imageIndex] = { ...image, rotation: nextRotation };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsImages: nextImages,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  deleteDetailsImage: (cardId, imageId) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const detailsImages = normalizeDetailsImages(card?.detailsImages);
+
+    if (!card || detailsImages.length === 0) {
+      return;
+    }
+
+    const nextImages = detailsImages.filter((image) => image.id !== imageId);
+
+    if (nextImages.length === detailsImages.length) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
 
     set({
       cards: {
