@@ -87,6 +87,21 @@ function normalizeDetailsImages(value) {
     : [];
 }
 
+function normalizeDetailsTextBoxes(value) {
+  return Array.isArray(value)
+    ? value
+        .filter((textBox) => textBox?.id)
+        .map((textBox) => ({
+          id: textBox.id,
+          text: typeof textBox.text === "string" ? textBox.text : "",
+          x: Number.isFinite(textBox.x) ? textBox.x : 0,
+          y: Number.isFinite(textBox.y) ? textBox.y : 0,
+          width: Number.isFinite(textBox.width) && textBox.width > 0 ? textBox.width : 260,
+          height: Number.isFinite(textBox.height) && textBox.height > 0 ? textBox.height : 120,
+        }))
+    : [];
+}
+
 function normalizeCards(value = {}) {
   return Object.fromEntries(
     Object.entries(value && typeof value === "object" ? value : {}).map(([cardId, card]) => [
@@ -98,6 +113,7 @@ function normalizeCards(value = {}) {
         detailsText: typeof card.detailsText === "string" ? card.detailsText : "",
         detailsTable: normalizeDetailsTable(card.detailsTable),
         detailsImages: normalizeDetailsImages(card.detailsImages),
+        detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes),
         image: card.image ? assetWithPreview(card.image) : null,
       },
     ]),

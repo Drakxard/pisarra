@@ -7,6 +7,7 @@ import type {
   CardSize,
   DetailsTable,
   DetailsImage,
+  DetailsTextBox,
   DraftImage,
   PasteFeedback,
   PendingImageAsset,
@@ -96,6 +97,14 @@ type TreeStore = {
   resizeDetailsImage: (cardId: string, imageId: string, size: CardSize) => void;
   rotateDetailsImage: (cardId: string, imageId: string, rotation: number) => void;
   deleteDetailsImage: (cardId: string, imageId: string) => void;
+  addDetailsTextBox: (
+    cardId: string,
+    placement: { x: number; y: number; width: number; height: number },
+  ) => string | null;
+  updateDetailsTextBox: (cardId: string, textBoxId: string, text: string) => void;
+  moveDetailsTextBox: (cardId: string, textBoxId: string, position: CardPosition) => void;
+  resizeDetailsTextBox: (cardId: string, textBoxId: string, size: CardSize) => void;
+  deleteDetailsTextBox: (cardId: string, textBoxId: string) => void;
   selectCard: (cardId: string | null, options?: CardSelectionOptions) => void;
   openCard: (cardId: string) => void;
   closeCard: () => void;
@@ -218,6 +227,29 @@ function normalizeDetailsImages(value: DetailsImage[] | null | undefined): Detai
   return images;
 }
 
+function normalizeDetailsTextBoxes(value: DetailsTextBox[] | null | undefined): DetailsTextBox[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((textBox): DetailsTextBox | null => {
+      if (!textBox?.id) {
+        return null;
+      }
+
+      return {
+        id: textBox.id,
+        text: normalizeDraftText(textBox.text ?? ""),
+        x: Number.isFinite(textBox.x) ? textBox.x : 0,
+        y: Number.isFinite(textBox.y) ? textBox.y : 0,
+        width: Number.isFinite(textBox.width) && textBox.width > 0 ? textBox.width : 260,
+        height: Number.isFinite(textBox.height) && textBox.height > 0 ? textBox.height : 120,
+      };
+    })
+    .filter((textBox): textBox is DetailsTextBox => Boolean(textBox));
+}
+
 function clampTableSize(value: number | undefined, min: number, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.round(value)) : fallback;
 }
@@ -267,6 +299,7 @@ function cloneCard(card: QuestionCard): QuestionCard {
         }
       : null,
     detailsImages: normalizeDetailsImages(card.detailsImages).map((image) => ({ ...image })),
+    detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes).map((textBox) => ({ ...textBox })),
     position: { ...card.position },
     size: card.size ? { ...card.size } : undefined,
     image: card.image
@@ -521,6 +554,7 @@ function normalizeCards(sourceCards: Record<string, QuestionCard> = {}) {
         detailsText: normalizeCardDetailsText(card.detailsText ?? ""),
         detailsTable: normalizeDetailsTable(card.detailsTable),
         detailsImages: normalizeDetailsImages(card.detailsImages),
+        detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes),
         position: {
           x: Number.isFinite(card.position?.x) ? card.position.x : AUTO_LAYOUT_PADDING,
           y: Number.isFinite(card.position?.y) ? card.position.y : AUTO_LAYOUT_PADDING,
@@ -668,6 +702,9 @@ function createPersistedCard(card: QuestionCard): QuestionCard {
       width: image.width,
       height: image.height,
       rotation: image.rotation,
+    })),
+    detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes).map((textBox) => ({
+      ...textBox,
     })),
     position: { ...card.position },
     image: card.image
@@ -1044,6 +1081,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       detailsText: "",
       detailsTable: null,
       detailsImages: [],
+      detailsTextBoxes: [],
       image: state.draftImage
         ? {
             path: buildImageAssetPath(id, state.draftImage.mimeType),
@@ -1491,6 +1529,161 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         [cardId]: {
           ...card,
           detailsImages: nextImages,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  addDetailsTextBox: (cardId, placement) => {
+    const { cards } = get();
+    const card = cards[cardId];
+
+    if (!card) {
+      return null;
+    }
+
+    const textBoxId = makeId();
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const textBox: DetailsTextBox = {
+      id: textBoxId,
+      text: "",
+      x: Math.max(0, Math.round(placement.x)),
+      y: Math.max(0, Math.round(placement.y)),
+      width: Math.max(120, Math.round(placement.width)),
+      height: Math.max(48, Math.round(placement.height)),
+    };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTextBoxes: [...normalizeDetailsTextBoxes(card.detailsTextBoxes), textBox],
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+
+    return textBoxId;
+  },
+  updateDetailsTextBox: (cardId, textBoxId, text) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const textBoxes = normalizeDetailsTextBoxes(card?.detailsTextBoxes);
+    const textBoxIndex = textBoxes.findIndex((textBox) => textBox.id === textBoxId);
+
+    if (!card || textBoxIndex === -1) {
+      return;
+    }
+
+    const nextText = normalizeDraftText(text);
+
+    if (textBoxes[textBoxIndex].text === nextText) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const nextTextBoxes = [...textBoxes];
+    nextTextBoxes[textBoxIndex] = { ...textBoxes[textBoxIndex], text: nextText };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTextBoxes: nextTextBoxes,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  moveDetailsTextBox: (cardId, textBoxId, position) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const textBoxes = normalizeDetailsTextBoxes(card?.detailsTextBoxes);
+    const textBoxIndex = textBoxes.findIndex((textBox) => textBox.id === textBoxId);
+
+    if (!card || textBoxIndex === -1) {
+      return;
+    }
+
+    const textBox = textBoxes[textBoxIndex];
+
+    if (textBox.x === position.x && textBox.y === position.y) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const nextTextBoxes = [...textBoxes];
+    nextTextBoxes[textBoxIndex] = { ...textBox, x: position.x, y: position.y };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTextBoxes: nextTextBoxes,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  resizeDetailsTextBox: (cardId, textBoxId, size) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const textBoxes = normalizeDetailsTextBoxes(card?.detailsTextBoxes);
+    const textBoxIndex = textBoxes.findIndex((textBox) => textBox.id === textBoxId);
+
+    if (!card || textBoxIndex === -1) {
+      return;
+    }
+
+    const textBox = textBoxes[textBoxIndex];
+    const width = Math.max(120, Math.round(size.width));
+    const height = Math.max(48, Math.round(size.height));
+
+    if (textBox.width === width && textBox.height === height) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const nextTextBoxes = [...textBoxes];
+    nextTextBoxes[textBoxIndex] = { ...textBox, width, height };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTextBoxes: nextTextBoxes,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  deleteDetailsTextBox: (cardId, textBoxId) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const textBoxes = normalizeDetailsTextBoxes(card?.detailsTextBoxes);
+    const nextTextBoxes = textBoxes.filter((textBox) => textBox.id !== textBoxId);
+
+    if (!card || nextTextBoxes.length === textBoxes.length) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTextBoxes: nextTextBoxes,
           updatedAt: snapshotUpdatedAt,
         },
       },

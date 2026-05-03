@@ -39,12 +39,22 @@ export type DetailsImage = {
   pendingBlob?: Blob | null;
 };
 
+export type DetailsTextBox = {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export type QuestionCard = {
   id: string;
   text: string;
   detailsText: string;
   detailsTable?: DetailsTable | null;
   detailsImages?: DetailsImage[];
+  detailsTextBoxes?: DetailsTextBox[];
   image: QuestionCardImage | null;
   position: CardPosition;
   size?: CardSize;

@@ -36,6 +36,7 @@ import type {
   CardSize,
   DetailsImage,
   DetailsTable,
+  DetailsTextBox,
   DraftImage,
   PendingImageAsset,
   QuestionCard,
@@ -141,6 +142,24 @@ type DetailsImageInteraction =
       imageId: string;
       centerX: number;
       centerY: number;
+    };
+
+type DetailsTextBoxInteraction =
+  | {
+      type: "move";
+      textBoxId: string;
+      startX: number;
+      startY: number;
+      originX: number;
+      originY: number;
+    }
+  | {
+      type: "resize";
+      textBoxId: string;
+      startX: number;
+      startY: number;
+      originWidth: number;
+      originHeight: number;
     };
 
 function clamp(value: number, min: number, max: number) {
@@ -788,6 +807,145 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
   );
 });
 
+const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
+  cardId,
+  textBoxes,
+  selectedTextBoxId,
+  onSelect,
+  onUpdate,
+  onMove,
+  onResize,
+}: {
+  cardId: string;
+  textBoxes: DetailsTextBox[];
+  selectedTextBoxId: string | null;
+  onSelect: (textBoxId: string | null) => void;
+  onUpdate: (cardId: string, textBoxId: string, text: string) => void;
+  onMove: (cardId: string, textBoxId: string, position: { x: number; y: number }) => void;
+  onResize: (cardId: string, textBoxId: string, size: { width: number; height: number }) => void;
+}) {
+  const interactionRef = useRef<DetailsTextBoxInteraction | null>(null);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const interaction = interactionRef.current;
+
+      if (!interaction) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (interaction.type === "move") {
+        onMove(cardId, interaction.textBoxId, {
+          x: interaction.originX + event.clientX - interaction.startX,
+          y: interaction.originY + event.clientY - interaction.startY,
+        });
+        return;
+      }
+
+      onResize(cardId, interaction.textBoxId, {
+        width: interaction.originWidth + event.clientX - interaction.startX,
+        height: interaction.originHeight + event.clientY - interaction.startY,
+      });
+    };
+
+    const onPointerUp = () => {
+      interactionRef.current = null;
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, [cardId, onMove, onResize]);
+
+  if (textBoxes.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="details-text-box-layer" aria-label="Textos libres del detalle">
+      {textBoxes.map((textBox) => {
+        const isSelected = selectedTextBoxId === textBox.id;
+
+        return (
+          <div
+            key={textBox.id}
+            data-text-box-id={textBox.id}
+            className={`details-text-box ${isSelected ? "is-selected" : ""}`}
+            style={{
+              left: `${textBox.x}px`,
+              top: `${textBox.y}px`,
+              width: `${textBox.width}px`,
+              minHeight: `${textBox.height}px`,
+            }}
+            onPointerDown={(event) => {
+              const target = event.target as HTMLElement | null;
+              onSelect(textBox.id);
+
+              if (target?.closest(".details-text-box-editor")) {
+                return;
+              }
+
+              event.preventDefault();
+              event.stopPropagation();
+              interactionRef.current = {
+                type: "move",
+                textBoxId: textBox.id,
+                startX: event.clientX,
+                startY: event.clientY,
+                originX: textBox.x,
+                originY: textBox.y,
+              };
+            }}
+          >
+            <div
+              className="details-text-box-editor"
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-multiline="true"
+              onInput={(event) => {
+                onUpdate(cardId, textBox.id, event.currentTarget.innerText ?? "");
+              }}
+              onBlur={(event) => {
+                onUpdate(cardId, textBox.id, event.currentTarget.innerText ?? "");
+              }}
+            >
+              {textBox.text}
+            </div>
+            {isSelected ? (
+              <button
+                type="button"
+                className="details-text-box-resize"
+                aria-label="Redimensionar texto"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  interactionRef.current = {
+                    type: "resize",
+                    textBoxId: textBox.id,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    originWidth: textBox.width,
+                    originHeight: textBox.height,
+                  };
+                }}
+              />
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
 const CategoryHome = memo(function CategoryHome({
   categories,
   selectedCategoryId,
@@ -1180,6 +1338,11 @@ export function StudyTreeApp() {
     resizeDetailsImage,
     rotateDetailsImage,
     deleteDetailsImage,
+    addDetailsTextBox,
+    updateDetailsTextBox,
+    moveDetailsTextBox,
+    resizeDetailsTextBox,
+    deleteDetailsTextBox,
     selectCard,
     openCard,
     closeCard,
@@ -1251,6 +1414,8 @@ export function StudyTreeApp() {
   const [showPasteFeedback, setShowPasteFeedback] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
   const [selectedDetailsImageId, setSelectedDetailsImageId] = useState<string | null>(null);
+  const [selectedDetailsTextBoxId, setSelectedDetailsTextBoxId] = useState<string | null>(null);
+  const [pendingTextBoxFocusId, setPendingTextBoxFocusId] = useState<string | null>(null);
   const [renamingCategoryId, setRenamingCategoryId] = useState<string | null>(null);
   const [categoryRenameDraft, setCategoryRenameDraft] = useState("");
   const [mapSearchText, setMapSearchText] = useState("");
@@ -1439,6 +1604,28 @@ export function StudyTreeApp() {
     }
   });
 
+  const createDetailsTextBox = useEffectEvent((cardId: string) => {
+    const overlay = stageRef.current?.querySelector(".card-modal-overlay");
+    const modalBody = stageRef.current?.querySelector(".card-modal-body");
+    const overlayRect =
+      overlay instanceof HTMLElement ? overlay.getBoundingClientRect() : stageRef.current?.getBoundingClientRect();
+    const bodyRect = modalBody instanceof HTMLElement ? modalBody.getBoundingClientRect() : overlayRect;
+    const width = 280;
+    const height = 120;
+    const x = bodyRect && overlayRect ? bodyRect.left - overlayRect.left + 24 : 24;
+    const y = bodyRect && overlayRect ? bodyRect.top - overlayRect.top + 220 : 220;
+    const textBoxId = addDetailsTextBox(cardId, {
+      x,
+      y,
+      width,
+      height,
+    });
+
+    setSelectedDetailsImageId(null);
+    setSelectedDetailsTextBoxId(textBoxId);
+    setPendingTextBoxFocusId(textBoxId);
+  });
+
   const clearUndoTimer = useEffectEvent(() => {
     if (undoTimeoutRef.current !== null) {
       window.clearTimeout(undoTimeoutRef.current);
@@ -1559,6 +1746,20 @@ export function StudyTreeApp() {
 
     if (
       openedCardId &&
+      selectedDetailsTextBoxId &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      (event.key === "Delete" || event.key === "Backspace")
+    ) {
+      event.preventDefault();
+      deleteDetailsTextBox(openedCardId, selectedDetailsTextBoxId);
+      setSelectedDetailsTextBoxId(null);
+      return;
+    }
+
+    if (
+      openedCardId &&
       selectedDetailsImageId &&
       !event.ctrlKey &&
       !event.altKey &&
@@ -1568,6 +1769,19 @@ export function StudyTreeApp() {
       event.preventDefault();
       deleteDetailsImage(openedCardId, selectedDetailsImageId);
       setSelectedDetailsImageId(null);
+      return;
+    }
+
+    if (
+      openedCardId &&
+      event.key.toLocaleLowerCase() === "t" &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !isEditableTarget(event.target)
+    ) {
+      event.preventDefault();
+      createDetailsTextBox(openedCardId);
       return;
     }
 
@@ -2024,8 +2238,26 @@ export function StudyTreeApp() {
     if (!isModalOpen) {
       setShowTableMenu(false);
       setSelectedDetailsImageId(null);
+      setSelectedDetailsTextBoxId(null);
+      setPendingTextBoxFocusId(null);
     }
   }, [isModalOpen]);
+
+  useEffect(() => {
+    if (!pendingTextBoxFocusId) {
+      return;
+    }
+
+    const editor = stageRef.current?.querySelector(
+      `.details-text-box[data-text-box-id="${pendingTextBoxFocusId}"] .details-text-box-editor`,
+    );
+
+    if (editor instanceof HTMLElement) {
+      editor.focus({ preventScroll: true });
+      placeCursorAtEnd(editor);
+      setPendingTextBoxFocusId(null);
+    }
+  }, [cards, pendingTextBoxFocusId]);
 
   useEffect(() => {
     setMapSearchText("");
@@ -2566,6 +2798,9 @@ export function StudyTreeApp() {
                   if (!target?.closest(".details-image-object")) {
                     setSelectedDetailsImageId(null);
                   }
+                  if (!target?.closest(".details-text-box")) {
+                    setSelectedDetailsTextBoxId(null);
+                  }
                 }}
               >
                 <CardContent card={openedCard} mode="full" />
@@ -2576,11 +2811,13 @@ export function StudyTreeApp() {
                   onStartTyping={() => {
                     setShowTableMenu(false);
                     setSelectedDetailsImageId(null);
+                    setSelectedDetailsTextBoxId(null);
                   }}
                   onPasteTable={(cells) => {
                     setDetailsTableFromCells(openedCard.id, cells);
                     setShowTableMenu(false);
                     setSelectedDetailsImageId(null);
+                    setSelectedDetailsTextBoxId(null);
                   }}
                   onPasteImage={(file) => {
                     void pasteDetailsImage(openedCard.id, file);
@@ -2597,10 +2834,12 @@ export function StudyTreeApp() {
                       setDetailsTableFromCells(openedCard.id, cells);
                       setShowTableMenu(false);
                       setSelectedDetailsImageId(null);
+                      setSelectedDetailsTextBoxId(null);
                     }}
                     onStartTyping={() => {
                       setShowTableMenu(false);
                       setSelectedDetailsImageId(null);
+                      setSelectedDetailsTextBoxId(null);
                     }}
                   />
                 ) : null}
@@ -2608,10 +2847,25 @@ export function StudyTreeApp() {
                   cardId={openedCard.id}
                   images={openedCard.detailsImages ?? []}
                   selectedImageId={selectedDetailsImageId}
-                  onSelect={setSelectedDetailsImageId}
+                  onSelect={(imageId) => {
+                    setSelectedDetailsTextBoxId(null);
+                    setSelectedDetailsImageId(imageId);
+                  }}
                   onMove={moveDetailsImage}
                   onResize={resizeDetailsImage}
                   onRotate={rotateDetailsImage}
+                />
+                <DetailsTextBoxLayer
+                  cardId={openedCard.id}
+                  textBoxes={openedCard.detailsTextBoxes ?? []}
+                  selectedTextBoxId={selectedDetailsTextBoxId}
+                  onSelect={(textBoxId) => {
+                    setSelectedDetailsImageId(null);
+                    setSelectedDetailsTextBoxId(textBoxId);
+                  }}
+                  onUpdate={updateDetailsTextBox}
+                  onMove={moveDetailsTextBox}
+                  onResize={resizeDetailsTextBox}
                 />
               </div>
               <div className="details-table-controls">

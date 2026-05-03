@@ -1,6 +1,7 @@
 import type {
   DetailsImage,
   DetailsTable,
+  DetailsTextBox,
   ProjectSnapshot,
   QuestionCard,
   StudyCategory,
@@ -95,6 +96,41 @@ function normalizeDetailsImages(value: unknown): DetailsImage[] {
     .filter((image): image is DetailsImage => Boolean(image));
 }
 
+function normalizeDetailsTextBoxes(value: unknown): DetailsTextBox[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((textBox): DetailsTextBox | null => {
+      if (!textBox || typeof textBox !== "object") {
+        return null;
+      }
+
+      const source = textBox as Partial<DetailsTextBox>;
+
+      if (!source.id) {
+        return null;
+      }
+
+      return {
+        id: source.id,
+        text: typeof source.text === "string" ? source.text : "",
+        x: typeof source.x === "number" && Number.isFinite(source.x) ? source.x : 0,
+        y: typeof source.y === "number" && Number.isFinite(source.y) ? source.y : 0,
+        width:
+          typeof source.width === "number" && Number.isFinite(source.width) && source.width > 0
+            ? source.width
+            : 260,
+        height:
+          typeof source.height === "number" && Number.isFinite(source.height) && source.height > 0
+            ? source.height
+            : 120,
+      };
+    })
+    .filter((textBox): textBox is DetailsTextBox => Boolean(textBox));
+}
+
 function withAssetPreviewUrl<T extends { path: string; previewUrl?: string }>(asset: T): T {
   if (asset.previewUrl || !asset.path) {
     return asset;
@@ -119,6 +155,7 @@ function normalizeCards(value: unknown) {
         detailsText: typeof card.detailsText === "string" ? card.detailsText : "",
         detailsTable: normalizeDetailsTable(card.detailsTable),
         detailsImages: normalizeDetailsImages(card.detailsImages).map(withAssetPreviewUrl),
+        detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes),
         image: card.image
           ? withAssetPreviewUrl({
               path: card.image.path,

@@ -789,6 +789,13 @@ img {
   pointer-events: none;
 }
 
+.details-text-box-layer {
+  position: absolute;
+  inset: 0;
+  min-height: 24rem;
+  pointer-events: none;
+}
+
 .details-image-object {
   position: absolute;
   z-index: 3;
@@ -810,6 +817,48 @@ img {
   object-fit: contain;
   pointer-events: none;
   user-select: none;
+}
+
+.details-text-box {
+  position: absolute;
+  z-index: 5;
+  min-width: 120px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #111111;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.details-text-box.is-selected {
+  border-color: var(--accent);
+  background: rgba(255, 252, 247, 0.18);
+  box-shadow: 0 0 0 0.18rem rgba(197, 124, 53, 0.14);
+}
+
+.details-text-box-editor {
+  width: 100%;
+  min-height: inherit;
+  padding: 0.45rem 0.55rem;
+  outline: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.details-text-box-resize {
+  position: absolute;
+  right: -0.55rem;
+  bottom: -0.55rem;
+  z-index: 6;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid #111111;
+  border-radius: 999px;
+  background: #ffffff;
+  cursor: nwse-resize;
 }
 
 .details-image-resize,
