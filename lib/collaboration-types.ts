@@ -36,3 +36,10 @@ export type RemoteProject = {
   snapshotVersion: number;
   latestEventId: number;
 };
+
+export type SyncResponse = {
+  latestEventId: number;
+  snapshotVersion: number;
+  hasRemoteChanges: boolean;
+  project?: RemoteProject;
+};

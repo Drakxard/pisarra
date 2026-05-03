@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import type { PresenceState, ProjectEvent, RemoteProject } from "@/lib/collaboration-types";
+import type { PresenceState, ProjectEvent, RemoteProject, SyncResponse } from "@/lib/collaboration-types";
 import { normalizeProjectSnapshot } from "@/lib/server/project-normalize";
 import type { ProjectSnapshot } from "@/lib/types";
 
@@ -222,6 +222,61 @@ export async function listProjectEvents(projectId = DEFAULT_PROJECT_ID, since = 
     snapshotVersion: row.snapshot_version,
     createdAt: row.created_at.toISOString(),
   }));
+}
+
+export async function getProjectSyncState({
+  projectId = DEFAULT_PROJECT_ID,
+  sinceEventId,
+  snapshotVersion,
+  clientId,
+}: {
+  projectId?: string;
+  sinceEventId: number;
+  snapshotVersion: number;
+  clientId: string | null;
+}): Promise<SyncResponse> {
+  await ensureSchema();
+  await getOrCreateProject(projectId);
+
+  const result = await getPool().query(
+    `
+      select
+        p.id,
+        p.snapshot,
+        p.snapshot_version,
+        coalesce((select max(id) from project_events where project_id = p.id), 0) as latest_event_id,
+        bool_or(e.id is not null and (e.client_id is distinct from $4)) as has_remote_event
+      from projects p
+      left join project_events e on e.project_id = p.id and e.id > $2
+      where p.id = $1
+      group by p.id, p.snapshot, p.snapshot_version
+    `,
+    [projectId, sinceEventId, snapshotVersion, clientId],
+  );
+  const row = result.rows[0];
+  const latestEventId = Number(row.latest_event_id);
+  const currentSnapshotVersion = row.snapshot_version as number;
+  const hasRemoteChanges = currentSnapshotVersion > snapshotVersion;
+
+  if (!hasRemoteChanges) {
+    return {
+      latestEventId,
+      snapshotVersion: currentSnapshotVersion,
+      hasRemoteChanges: false,
+    };
+  }
+
+  return {
+    latestEventId,
+    snapshotVersion: currentSnapshotVersion,
+    hasRemoteChanges: true,
+    project: {
+      projectId: row.id,
+      snapshot: normalizeProjectSnapshot(row.snapshot),
+      snapshotVersion: currentSnapshotVersion,
+      latestEventId,
+    },
+  };
 }
 
 export async function upsertPresence(

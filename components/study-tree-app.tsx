@@ -30,6 +30,7 @@ import type {
   CollaboratorIdentity,
   PresenceState,
   RemoteProject,
+  SyncResponse,
 } from "@/lib/collaboration-types";
 import type {
   CardSize,
@@ -44,8 +45,9 @@ import type {
 
 const DEFAULT_STAGE_WIDTH = 1400;
 const DEFAULT_STAGE_HEIGHT = 900;
-const AUTOSAVE_DEBOUNCE_MS = 450;
-const REMOTE_POLL_MS = 1200;
+const AUTOSAVE_DEBOUNCE_MS = 150;
+const REMOTE_POLL_MS = 350;
+const REMOTE_BACKGROUND_POLL_MS = 1500;
 const PRESENCE_POLL_MS = 900;
 const PRESENCE_SEND_MS = 120;
 const UNDO_TIMEOUT_MS = 3000;
@@ -1223,6 +1225,8 @@ export function StudyTreeApp() {
   const remoteVersionRef = useRef<number>(0);
   const latestEventIdRef = useRef<number>(0);
   const isApplyingRemoteSnapshotRef = useRef(false);
+  const isSavingProjectRef = useRef(false);
+  const needsSaveAfterCurrentRef = useRef(false);
   const lastPresenceSentAtRef = useRef(0);
   const lastPresenceRef = useRef<PresenceState["cursor"]>(null);
   const undoTimeoutRef = useRef<number | null>(null);
@@ -1273,6 +1277,96 @@ export function StudyTreeApp() {
     window.setTimeout(() => {
       isApplyingRemoteSnapshotRef.current = false;
     }, 0);
+  });
+
+  const syncRemoteProject = useEffectEvent(async () => {
+    if (!identity || bootState !== "ready") {
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        sinceEventId: String(latestEventIdRef.current),
+        snapshotVersion: String(remoteVersionRef.current),
+        clientId: identity.clientId,
+      });
+      const response = await fetch(`/api/sync?${params.toString()}`, {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const sync = (await response.json()) as SyncResponse;
+      latestEventIdRef.current = Math.max(latestEventIdRef.current, sync.latestEventId);
+
+      if (sync.hasRemoteChanges && sync.project) {
+        applyRemoteProjectSnapshot(sync.project);
+        return;
+      }
+
+      remoteVersionRef.current = Math.max(remoteVersionRef.current, sync.snapshotVersion);
+    } catch (error) {
+      console.error("No se pudo sincronizar el proyecto.", error);
+    }
+  });
+
+  const saveRemoteProject = useEffectEvent(async () => {
+    if (!identity || bootState !== "ready" || isApplyingRemoteSnapshotRef.current) {
+      return;
+    }
+
+    if (isSavingProjectRef.current) {
+      needsSaveAfterCurrentRef.current = true;
+      return;
+    }
+
+    const snapshot = useTreeStore.getState().getProjectSnapshot();
+    const signature = JSON.stringify(snapshot);
+
+    if (signature === lastPersistedProjectSignatureRef.current) {
+      return;
+    }
+
+    isSavingProjectRef.current = true;
+
+    try {
+      await uploadPendingAssets(useTreeStore.getState().getPendingImageAssets());
+      const response = await fetch("/api/project", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          snapshot,
+          expectedVersion: remoteVersionRef.current,
+          clientId: identity.clientId,
+        }),
+      });
+      const result = (await response.json()) as RemoteSaveResponse;
+
+      if (response.status === 409 || !result.ok) {
+        console.info("Snapshot remoto mas nuevo; se sincroniza sin cambiar de vista.");
+        applyRemoteProjectSnapshot(result.project);
+        return;
+      }
+
+      remoteVersionRef.current = result.project.snapshotVersion;
+      latestEventIdRef.current = result.project.latestEventId;
+      lastPersistedProjectSignatureRef.current = signature;
+      markCardImagesPersisted(useTreeStore.getState().getPendingImageAssets().map((asset) => asset.cardId));
+      void syncRemoteProject();
+    } catch (error) {
+      console.error("No se pudo guardar el proyecto remoto.", error);
+    } finally {
+      isSavingProjectRef.current = false;
+
+      if (needsSaveAfterCurrentRef.current) {
+        needsSaveAfterCurrentRef.current = false;
+        void saveRemoteProject();
+      }
+    }
   });
 
   const sendPresence = useEffectEvent(
@@ -1949,6 +2043,10 @@ export function StudyTreeApp() {
   }, [activeCategoryId, activeMapKind, activeSectionId, openedCardId, sendPresence]);
 
   useEffect(() => {
+    void syncRemoteProject();
+  }, [activeCategoryId, activeMapKind, activeSectionId, openedCardId, syncRemoteProject]);
+
+  useEffect(() => {
     if (!activeSearchResult) {
       return;
     }
@@ -2040,38 +2138,7 @@ export function StudyTreeApp() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      void (async () => {
-        try {
-          await uploadPendingAssets(pendingImageAssets);
-          const response = await fetch("/api/project", {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              snapshot: useTreeStore.getState().getProjectSnapshot(),
-              expectedVersion: remoteVersionRef.current,
-              clientId: identity.clientId,
-            }),
-          });
-          const result = (await response.json()) as RemoteSaveResponse;
-
-          if (response.status === 409 || !result.ok) {
-            console.info("Snapshot remoto mas nuevo; se sincroniza sin cambiar de vista.");
-            applyRemoteProjectSnapshot(result.project);
-            return;
-          }
-
-          remoteVersionRef.current = result.project.snapshotVersion;
-          latestEventIdRef.current = result.project.latestEventId;
-          lastPersistedProjectSignatureRef.current = JSON.stringify(
-            useTreeStore.getState().getProjectSnapshot(),
-          );
-          markCardImagesPersisted(pendingImageAssets.map((asset) => asset.cardId));
-        } catch (error) {
-          console.error("No se pudo guardar el proyecto remoto.", error);
-        }
-      })();
+      void saveRemoteProject();
     }, AUTOSAVE_DEBOUNCE_MS);
 
     return () => {
@@ -2079,13 +2146,10 @@ export function StudyTreeApp() {
     };
   }, [
     bootState,
-    applyRemoteProjectSnapshot,
     identity,
-    loadProjectSnapshot,
-    markCardImagesPersisted,
     pendingAssetSignature,
-    pendingImageAssets,
     projectSignature,
+    saveRemoteProject,
   ]);
 
   useEffect(() => {
@@ -2093,51 +2157,39 @@ export function StudyTreeApp() {
       return;
     }
 
+    let timeoutId: number | null = null;
     let cancelled = false;
 
-    const pollEvents = async () => {
-      try {
-        const eventsResponse = await fetch(`/api/events?since=${latestEventIdRef.current}`, {
-          cache: "no-store",
-        });
+    const schedulePoll = () => {
+      if (cancelled) {
+        return;
+      }
 
-        if (!eventsResponse.ok) {
-          return;
-        }
+      const delay = document.hidden ? REMOTE_BACKGROUND_POLL_MS : REMOTE_POLL_MS;
+      timeoutId = window.setTimeout(() => {
+        void syncRemoteProject().finally(schedulePoll);
+      }, delay);
+    };
 
-        const { events } = (await eventsResponse.json()) as {
-          events: { id: number; clientId: string | null; snapshotVersion: number }[];
-        };
-        const hasRemoteEvent = events.some((event) => event.clientId !== identity.clientId);
-
-        if (!hasRemoteEvent || cancelled) {
-          if (events.length > 0) {
-            latestEventIdRef.current = Math.max(latestEventIdRef.current, ...events.map((event) => event.id));
-          }
-          return;
-        }
-
-        const project = await fetchRemoteProject();
-
-        if (cancelled || project.snapshotVersion <= remoteVersionRef.current) {
-          return;
-        }
-
-        applyRemoteProjectSnapshot(project);
-      } catch (error) {
-        console.error("No se pudieron sincronizar cambios remotos.", error);
+    const syncNow = () => {
+      if (!document.hidden) {
+        void syncRemoteProject();
       }
     };
 
-    const intervalId = window.setInterval(() => {
-      void pollEvents();
-    }, REMOTE_POLL_MS);
+    schedulePoll();
+    window.addEventListener("focus", syncNow);
+    document.addEventListener("visibilitychange", syncNow);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      window.removeEventListener("focus", syncNow);
+      document.removeEventListener("visibilitychange", syncNow);
     };
-  }, [applyRemoteProjectSnapshot, bootState, identity]);
+  }, [bootState, identity, syncRemoteProject]);
 
   useEffect(() => {
     if (bootState !== "ready" || !identity) {
