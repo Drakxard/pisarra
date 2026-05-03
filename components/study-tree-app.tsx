@@ -456,7 +456,7 @@ const CardDetailsEditor = memo(function CardDetailsEditor({
         aria-multiline="true"
         onInput={(event) => {
           onStartTyping?.();
-          setDraft(event.currentTarget.innerText ?? "");
+          persistDraft(event.currentTarget.innerText ?? "");
         }}
         onBlur={onBlur}
         onPaste={(event: ReactClipboardEvent<HTMLDivElement>) => {
@@ -485,7 +485,7 @@ const CardDetailsEditor = memo(function CardDetailsEditor({
           event.preventDefault();
           onStartTyping?.();
           insertPlainTextAtCursor(event.clipboardData.getData("text/plain"));
-          setDraft(event.currentTarget.innerText ?? "");
+          persistDraft(event.currentTarget.innerText ?? "");
         }}
       />
     </section>
