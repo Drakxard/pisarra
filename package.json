@@ -7,9 +7,11 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "node scripts/migrate-study-tree.mjs"
+    "db:migrate": "node scripts/migrate-study-tree.mjs",
+    "r2:migrate-assets": "node scripts/migrate-assets-to-r2.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1041.0",
     "@xyflow/react": "^12.10.2",
     "next": "^16.2.4",
     "pg": "^8.20.0",

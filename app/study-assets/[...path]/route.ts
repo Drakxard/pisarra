@@ -1,18 +1,7 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
+import { getAsset, readLocalAssetFallback } from "@/lib/server/r2-assets";
 
 export const runtime = "nodejs";
-
-const MIME_TYPES: Record<string, string> = {
-  ".gif": "image/gif",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".webp": "image/webp",
-};
-const ASSETS_ROOT = path.join(process.cwd(), "study-assets");
 
 export async function GET(
   _request: NextRequest,
@@ -20,19 +9,37 @@ export async function GET(
 ) {
   const { path: segments } = await context.params;
   const safeSegments = segments.filter((segment) => segment && segment !== "..");
-  const filePath = path.join(ASSETS_ROOT, ...safeSegments);
+  const assetPath = `study-assets/${safeSegments.join("/")}`;
 
   try {
-    const file = await readFile(filePath);
-    const contentType = MIME_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+    const asset = await getAsset(assetPath);
 
-    return new NextResponse(file, {
-      headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "public, max-age=31536000, immutable",
-      },
-    });
+    if (asset) {
+      return new NextResponse(asset.body, {
+        headers: {
+          "Content-Type": asset.contentType,
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      });
+    }
   } catch {
-    return NextResponse.json({ error: "Asset no encontrado." }, { status: 404 });
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json({ error: "Asset no encontrado." }, { status: 404 });
+    }
   }
+
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      const localAsset = await readLocalAssetFallback(assetPath);
+
+      return new NextResponse(localAsset.body, {
+        headers: {
+          "Content-Type": localAsset.contentType,
+          "Cache-Control": "public, max-age=60",
+        },
+      });
+    } catch {}
+  }
+
+  return NextResponse.json({ error: "Asset no encontrado." }, { status: 404 });
 }

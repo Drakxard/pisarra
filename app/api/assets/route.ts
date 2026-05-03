@@ -1,21 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { NextResponse } from "next/server";
+import { putAsset } from "@/lib/server/r2-assets";
 
 export const runtime = "nodejs";
-
-const ASSETS_ROOT = path.join(process.cwd(), "study-assets");
-
-function getSafeAssetPath(relativePath: string) {
-  const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
-  const segments = normalized.split("/").filter((segment) => segment && segment !== "..");
-
-  if (segments[0] !== "study-assets" || segments.length < 2) {
-    throw new Error("Ruta de asset invalida.");
-  }
-
-  return path.join(ASSETS_ROOT, ...segments.slice(1));
-}
 
 export async function POST(request: Request) {
   try {
@@ -35,9 +21,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Payload invalido." }, { status: 400 });
       }
 
-      const filePath = getSafeAssetPath(relativePath);
-      await mkdir(path.dirname(filePath), { recursive: true });
-      await writeFile(filePath, Buffer.from(await file.arrayBuffer()));
+      await putAsset({
+        assetPath: relativePath,
+        body: Buffer.from(await file.arrayBuffer()),
+        contentType: file.type || undefined,
+      });
     }
 
     return NextResponse.json({ ok: true });
