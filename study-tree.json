@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "categories": {
     "84490347-c853-461d-9d68-7437b9d512ff": {
       "id": "84490347-c853-461d-9d68-7437b9d512ff",
@@ -36,12 +36,12 @@
           "detailsText": "Enfocarse\n\n-- Cursado--\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica: aprenderlo bien, lunes repaso\nLógica: Parcial\nProb: Planera proy final, muestra parcial\n--\n--Mesas--\nÁlgebra y Cálculo 2: Debería, tener un \"cronograma tentativo\", faltan 8 semanas/2 meses\n\n\nMientras lo veo, debo ir recolectando lo que podria complicarse, texto sutil\nAdemas, ir lineal respecto a los temas. \nPodcast de los teoremas?",
           "image": null,
           "position": {
-            "x": 497,
-            "y": 48
+            "x": 487,
+            "y": 158
           },
-          "zIndex": 59,
+          "zIndex": 60,
           "createdAt": "2026-05-02T19:14:11.647Z",
-          "updatedAt": "2026-05-02T20:16:01.883Z",
+          "updatedAt": "2026-05-02T21:09:22.338Z",
           "size": {
             "width": 384,
             "height": 58
@@ -52,8 +52,83 @@
       },
       "selectedCardId": null,
       "draftText": "",
+      "sections": {
+        "definitions": {
+          "id": "definitions",
+          "name": "Definiciones",
+          "cards": {
+            "c82983a1-4337-44be-9472-7d983005716a": {
+              "id": "c82983a1-4337-44be-9472-7d983005716a",
+              "text": "Seccion 5.1",
+              "detailsText": "",
+              "detailsTable": null,
+              "detailsImages": [],
+              "image": null,
+              "position": {
+                "x": 53,
+                "y": 128
+              },
+              "zIndex": 28,
+              "createdAt": "2026-05-02T20:39:49.340Z",
+              "updatedAt": "2026-05-02T21:06:23.856Z",
+              "size": {
+                "width": 384,
+                "height": 58
+              }
+            },
+            "2b99c60c-b76b-4593-8ec4-12cfb9f97474": {
+              "id": "2b99c60c-b76b-4593-8ec4-12cfb9f97474",
+              "text": "Espacio vectorial",
+              "detailsText": "",
+              "detailsTable": null,
+              "detailsImages": [],
+              "image": {
+                "path": "study-assets/2b99c60c-b76b-4593-8ec4-12cfb9f97474.png",
+                "mimeType": "image/png",
+                "name": "image.png",
+                "width": 1077,
+                "height": 227
+              },
+              "position": {
+                "x": 152,
+                "y": 211
+              },
+              "zIndex": 30,
+              "createdAt": "2026-05-02T20:40:29.501Z",
+              "updatedAt": "2026-05-02T21:06:25.966Z",
+              "size": {
+                "width": 384,
+                "height": 145
+              }
+            }
+          },
+          "selectedCardId": null,
+          "draftText": "",
+          "createdAt": "2026-05-02T20:36:23.399Z",
+          "updatedAt": "2026-05-02T21:06:26.494Z"
+        },
+        "theorems": {
+          "id": "theorems",
+          "name": "Teoremas",
+          "cards": {},
+          "selectedCardId": null,
+          "draftText": "",
+          "createdAt": "2026-05-02T20:36:23.399Z",
+          "updatedAt": "2026-05-02T21:06:26.494Z"
+        },
+        "exams": {
+          "id": "exams",
+          "name": "Parciales",
+          "cards": {},
+          "selectedCardId": null,
+          "draftText": "",
+          "createdAt": "2026-05-02T20:36:23.399Z",
+          "updatedAt": "2026-05-02T21:09:11.601Z"
+        }
+      },
+      "activeSectionId": "exams",
       "createdAt": "2026-05-02T20:15:43.876Z",
-      "updatedAt": "2026-05-02T20:16:02.271Z"
+      "updatedAt": "2026-05-02T21:09:22.542Z"
     },
     "8cba1abf-a832-4167-88e0-39adb306e5b2": {
       "id": "8cba1abf-a832-4167-88e0-39adb306e5b2",
@@ -61,12 +136,44 @@
       "cards": {},
       "selectedCardId": null,
       "draftText": "",
+      "sections": {
+        "definitions": {
+          "id": "definitions",
+          "name": "Definiciones",
+          "cards": {},
+          "selectedCardId": null,
+          "draftText": "",
+          "createdAt": "2026-05-02T20:36:23.399Z",
+          "updatedAt": "2026-05-02T20:36:23.399Z"
+        },
+        "theorems": {
+          "id": "theorems",
+          "name": "Teoremas",
+          "cards": {},
+          "selectedCardId": null,
+          "draftText": "",
+          "createdAt": "2026-05-02T20:36:23.399Z",
+          "updatedAt": "2026-05-02T20:36:23.399Z"
+        },
+        "exams": {
+          "id": "exams",
+          "name": "Parciales",
+          "cards": {},
+          "selectedCardId": null,
+          "draftText": "",
+          "createdAt": "2026-05-02T20:36:23.399Z",
+          "updatedAt": "2026-05-02T20:36:23.399Z"
+        }
+      },
+      "activeSectionId": null,
       "createdAt": "2026-05-02T20:16:10.263Z",
       "updatedAt": "2026-05-02T20:16:12.769Z"
     }
   },
   "activeCategoryId": null,
+  "activeMapKind": null,
+  "activeSectionId": null,
   "selectedCategoryId": "84490347-c853-461d-9d68-7437b9d512ff",
   "categoryDraftText": "",
-  "savedAt": "2026-05-02T20:16:12.769Z"
+  "savedAt": "2026-05-02T21:09:25.243Z"
 }

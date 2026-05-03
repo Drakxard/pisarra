@@ -139,6 +139,29 @@ img {
   opacity: 0.7;
 }
 
+.name-gate-form {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.name-gate-input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid rgba(27, 27, 27, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--foreground);
+  padding: 0.75rem 1rem;
+  font: inherit;
+  outline: 0;
+}
+
+.name-gate-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(197, 124, 53, 0.15);
+}
+
 .question-stage-backdrop {
   position: absolute;
   inset: 0;
@@ -154,6 +177,38 @@ img {
   pointer-events: none;
   transform-origin: 0 0;
   will-change: transform;
+}
+
+.collaborator-cursor {
+  position: absolute;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.2rem;
+  pointer-events: none;
+  transform: translate(0, 0);
+}
+
+.collaborator-cursor-mark {
+  width: 0;
+  height: 0;
+  border-left: 0.65rem solid currentColor;
+  border-top: 0.95rem solid currentColor;
+  border-right: 0.42rem solid transparent;
+  border-bottom: 0.42rem solid transparent;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.18));
+}
+
+.collaborator-cursor-name {
+  margin-top: 0.72rem;
+  border-radius: 999px;
+  background: currentColor;
+  color: #ffffff;
+  padding: 0.18rem 0.48rem;
+  font-size: 0.72rem;
+  line-height: 1.15;
+  white-space: nowrap;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.14);
 }
 
 .empty-state {
@@ -897,6 +952,10 @@ img {
 
   .directory-gate-button {
     width: 100%;
+  }
+
+  .name-gate-form {
+    flex-direction: column;
   }
 
   .question-card {

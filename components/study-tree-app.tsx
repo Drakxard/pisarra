@@ -27,10 +27,16 @@ import {
 } from "@/lib/project-persistence";
 import { useTreeStore } from "@/lib/tree-store";
 import type {
+  CollaboratorIdentity,
+  PresenceState,
+  RemoteProject,
+} from "@/lib/collaboration-types";
+import type {
   CardSize,
   DetailsImage,
   DetailsTable,
   DraftImage,
+  PendingImageAsset,
   QuestionCard,
   SearchResult,
   StudyCategory,
@@ -39,6 +45,9 @@ import type {
 const DEFAULT_STAGE_WIDTH = 1400;
 const DEFAULT_STAGE_HEIGHT = 900;
 const AUTOSAVE_DEBOUNCE_MS = 450;
+const REMOTE_POLL_MS = 1200;
+const PRESENCE_POLL_MS = 900;
+const PRESENCE_SEND_MS = 120;
 const UNDO_TIMEOUT_MS = 3000;
 const PASTE_FEEDBACK_TIMEOUT_MS = 2600;
 const CARD_FALLBACK_WIDTH = 320;
@@ -61,7 +70,18 @@ type StageSize = {
   height: number;
 };
 
-type AppBootState = "loading" | "needs-directory" | "ready";
+type AppBootState = "loading" | "needs-name" | "ready";
+
+type RemoteSaveResponse =
+  | {
+      ok: true;
+      project: RemoteProject;
+    }
+  | {
+      ok: false;
+      conflict: true;
+      project: RemoteProject;
+    };
 
 type DragState = {
   cardId: string;
@@ -123,6 +143,81 @@ type DetailsImageInteraction =
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function makeClientId() {
+  return crypto.randomUUID();
+}
+
+function getCollaboratorColor(clientId: string) {
+  const colors = ["#2563eb", "#16a34a", "#dc2626", "#9333ea", "#c2410c", "#0f766e", "#be123c"];
+  let hash = 0;
+
+  for (const character of clientId) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+
+  return colors[hash % colors.length];
+}
+
+function getStoredIdentity(): CollaboratorIdentity | null {
+  try {
+    const raw = window.localStorage.getItem("study-tree-collaborator");
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<CollaboratorIdentity>;
+
+    if (!parsed.clientId || !parsed.name || !parsed.color) {
+      return null;
+    }
+
+    return {
+      clientId: parsed.clientId,
+      name: parsed.name,
+      color: parsed.color,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storeIdentity(identity: CollaboratorIdentity) {
+  window.localStorage.setItem("study-tree-collaborator", JSON.stringify(identity));
+}
+
+async function fetchRemoteProject() {
+  const response = await fetch("/api/project", { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error("No se pudo cargar el proyecto remoto.");
+  }
+
+  return (await response.json()) as RemoteProject;
+}
+
+async function uploadPendingAssets(assets: PendingImageAsset[]) {
+  if (assets.length === 0) {
+    return;
+  }
+
+  const formData = new FormData();
+
+  for (const asset of assets) {
+    formData.append("path", asset.path);
+    formData.append("file", asset.blob);
+  }
+
+  const response = await fetch("/api/assets", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error("No se pudieron subir las imagenes pendientes.");
+  }
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -1122,8 +1217,13 @@ export function StudyTreeApp() {
   const isModalOpen = Boolean(openedCard);
   const draftCommandHint = getDraftCommandHint(draftText, Boolean(draftImage));
   const stageRef = useRef<HTMLElement | null>(null);
-  const hasAttemptedRecoveryRef = useRef(false);
+  const hasAttemptedRemoteBootRef = useRef(false);
   const lastPersistedProjectSignatureRef = useRef<string | null>(null);
+  const remoteVersionRef = useRef<number>(0);
+  const latestEventIdRef = useRef<number>(0);
+  const isApplyingRemoteSnapshotRef = useRef(false);
+  const lastPresenceSentAtRef = useRef(0);
+  const lastPresenceRef = useRef<PresenceState["cursor"]>(null);
   const undoTimeoutRef = useRef<number | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const panStateRef = useRef<PanState | null>(null);
@@ -1135,10 +1235,11 @@ export function StudyTreeApp() {
     height: DEFAULT_STAGE_HEIGHT,
   });
   const [camera, setCameraState] = useState({ x: 0, y: 0 });
-  const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [bootState, setBootState] = useState<AppBootState>("loading");
   const [bootError, setBootError] = useState<string | null>(null);
-  const [isPickingDirectory, setIsPickingDirectory] = useState(false);
+  const [identity, setIdentity] = useState<CollaboratorIdentity | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [presence, setPresence] = useState<PresenceState[]>([]);
   const [showUndoToast, setShowUndoToast] = useState(false);
   const [showSearchFeedback, setShowSearchFeedback] = useState(false);
   const [showPasteFeedback, setShowPasteFeedback] = useState(false);
@@ -1147,8 +1248,6 @@ export function StudyTreeApp() {
   const [renamingCategoryId, setRenamingCategoryId] = useState<string | null>(null);
   const [categoryRenameDraft, setCategoryRenameDraft] = useState("");
   const [mapSearchText, setMapSearchText] = useState("");
-  const [canUseProjectDirectory, setCanUseProjectDirectory] = useState(false);
-  const [hasResolvedDirectorySupport, setHasResolvedDirectorySupport] = useState(false);
   const worldHeight = Math.max(
     stageSize.height,
     ...cardsList.map((card) => card.position.y + (card.size?.height ?? CARD_FALLBACK_HEIGHT) + 260),
@@ -1158,6 +1257,37 @@ export function StudyTreeApp() {
     cameraRef.current = nextCamera;
     setCameraState(nextCamera);
   };
+
+  const sendPresence = useEffectEvent((cursor: PresenceState["cursor"]) => {
+    if (!identity || bootState !== "ready") {
+      return;
+    }
+
+    const now = Date.now();
+    lastPresenceRef.current = cursor;
+
+    if (now - lastPresenceSentAtRef.current < PRESENCE_SEND_MS) {
+      return;
+    }
+
+    lastPresenceSentAtRef.current = now;
+
+    void fetch("/api/presence", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...identity,
+        cursor,
+        activeCategoryId,
+        activeMapKind,
+        activeSectionId,
+      }),
+    }).catch((error) => {
+      console.error("No se pudo actualizar presencia.", error);
+    });
+  });
 
   const pasteDetailsImage = useEffectEvent(async (cardId: string, file: File) => {
     try {
@@ -1199,70 +1329,6 @@ export function StudyTreeApp() {
     if (closeHoldTimeoutRef.current !== null) {
       window.clearTimeout(closeHoldTimeoutRef.current);
       closeHoldTimeoutRef.current = null;
-    }
-  });
-
-  const readProjectFromHandle = useEffectEvent(async (handle: FileSystemDirectoryHandle) => {
-    try {
-      const snapshot = await readProjectSnapshot(handle);
-      return await hydrateProjectSnapshotAssets(handle, snapshot);
-    } catch (error) {
-      if (
-        error instanceof MissingProjectFileError ||
-        error instanceof EmptyProjectFileError ||
-        error instanceof InvalidProjectFileError ||
-        error instanceof IncompatibleProjectVersionError ||
-        error instanceof SyntaxError
-      ) {
-        console.warn("No se pudo restaurar study-tree.json; se iniciara un proyecto vacio.", error);
-        return null;
-      }
-
-      throw error;
-    }
-  });
-
-  const activateDirectoryHandle = useEffectEvent(
-    async (handle: FileSystemDirectoryHandle, options?: { resetIfEmpty?: boolean }) => {
-      const snapshot = await readProjectFromHandle(handle);
-
-      if (snapshot) {
-        loadProjectSnapshot(snapshot);
-      } else if (options?.resetIfEmpty !== false) {
-        resetProject();
-      }
-
-      setDirectoryHandle(handle);
-      setBootError(null);
-      setBootState("ready");
-      lastPersistedProjectSignatureRef.current = JSON.stringify(
-        useTreeStore.getState().getProjectSnapshot(),
-      );
-    },
-  );
-
-  const onPickProjectDirectory = useEffectEvent(async () => {
-    if (!canUseProjectDirectory || isPickingDirectory) {
-      return;
-    }
-
-    setIsPickingDirectory(true);
-    setBootError(null);
-
-    try {
-      const handle = await selectProjectDirectory();
-      await activateDirectoryHandle(handle);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return;
-      }
-
-      const message =
-        error instanceof Error ? error.message : "No se pudo abrir la carpeta del proyecto.";
-
-      setBootError(message);
-    } finally {
-      setIsPickingDirectory(false);
     }
   });
 
@@ -1583,6 +1649,15 @@ export function StudyTreeApp() {
   });
 
   const onStagePointerMove = useEffectEvent((event: ReactPointerEvent<HTMLElement>) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+
+    if (rect && activeCategoryId && !isModalOpen) {
+      sendPresence({
+        x: event.clientX - rect.left - cameraRef.current.x,
+        y: event.clientY - rect.top - cameraRef.current.y,
+      });
+    }
+
     const panState = panStateRef.current;
 
     if (!panState || panState.pointerId !== event.pointerId) {
@@ -1841,6 +1916,10 @@ export function StudyTreeApp() {
   }, [showTableMenu]);
 
   useEffect(() => {
+    sendPresence(lastPresenceRef.current);
+  }, [activeCategoryId, activeMapKind, activeSectionId, sendPresence]);
+
+  useEffect(() => {
     if (!activeSearchResult) {
       return;
     }
@@ -1861,100 +1940,115 @@ export function StudyTreeApp() {
   }, [activeSearchResult, cards, stageSize.height, stageSize.width]);
 
   useEffect(() => {
-    setCanUseProjectDirectory(supportsProjectDirectory());
-    setHasResolvedDirectorySupport(true);
+    if (hasAttemptedRemoteBootRef.current) {
+      return;
+    }
+
+    hasAttemptedRemoteBootRef.current = true;
+    const storedIdentity = getStoredIdentity();
+
+    if (!storedIdentity) {
+      setBootState("needs-name");
+      return;
+    }
+
+    setIdentity(storedIdentity);
   }, []);
 
   useEffect(() => {
-    if (hasAttemptedRecoveryRef.current) {
+    if (!identity) {
       return;
     }
-
-    if (!hasResolvedDirectorySupport) {
-      return;
-    }
-
-    hasAttemptedRecoveryRef.current = true;
 
     let cancelled = false;
 
-    const recoverProject = async () => {
-      if (!canUseProjectDirectory) {
-        setBootState("needs-directory");
-        setBootError("Tu navegador no soporta acceso persistente a carpetas.");
-        return;
-      }
-
+    const bootRemoteProject = async () => {
       setBootState("loading");
       setBootError(null);
 
       try {
-        const storedHandle = await withTimeout(recoverStoredDirectoryHandle(), 5000, null);
-
-        if (!storedHandle) {
-          if (!cancelled) {
-            setBootState("needs-directory");
-          }
-          return;
-        }
-
-        const hasAccess = await hasDirectoryReadWriteAccess(storedHandle);
+        const project = await fetchRemoteProject();
 
         if (cancelled) {
           return;
         }
 
-        if (!hasAccess) {
-          setDirectoryHandle(null);
-          setBootState("needs-directory");
-          return;
-        }
-
-        await activateDirectoryHandle(storedHandle);
+        isApplyingRemoteSnapshotRef.current = true;
+        loadProjectSnapshot(project.snapshot);
+        remoteVersionRef.current = project.snapshotVersion;
+        latestEventIdRef.current = project.latestEventId;
+        lastPersistedProjectSignatureRef.current = JSON.stringify(
+          useTreeStore.getState().getProjectSnapshot(),
+        );
+        setBootState("ready");
       } catch (error) {
         if (cancelled) {
           return;
         }
 
-        console.error("No se pudo hidratar el proyecto al iniciar.", error);
-        setDirectoryHandle(null);
-        setBootState("needs-directory");
+        console.error("No se pudo cargar el proyecto remoto.", error);
+        setBootError(error instanceof Error ? error.message : "No se pudo cargar el proyecto remoto.");
+        setBootState("needs-name");
+      } finally {
+        isApplyingRemoteSnapshotRef.current = false;
       }
     };
 
-    void recoverProject();
+    void bootRemoteProject();
 
     return () => {
       cancelled = true;
     };
-  }, [activateDirectoryHandle, canUseProjectDirectory, hasResolvedDirectorySupport]);
+  }, [identity, loadProjectSnapshot]);
 
   useEffect(() => {
-    if (!directoryHandle || bootState !== "ready") {
+    if (bootState !== "ready" || !identity || isApplyingRemoteSnapshotRef.current) {
       return;
     }
 
-    if (
-      projectSignature === lastPersistedProjectSignatureRef.current &&
-      pendingImageAssets.length === 0
-    ) {
+    if (projectSignature === lastPersistedProjectSignatureRef.current) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
       void (async () => {
         try {
-          await writeProjectSnapshot(
-            directoryHandle,
-            useTreeStore.getState().getProjectSnapshot(),
-            pendingImageAssets,
-          );
-          markCardImagesPersisted(pendingImageAssets.map((asset) => asset.cardId));
+          await uploadPendingAssets(pendingImageAssets);
+          const response = await fetch("/api/project", {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              snapshot: useTreeStore.getState().getProjectSnapshot(),
+              expectedVersion: remoteVersionRef.current,
+              clientId: identity.clientId,
+            }),
+          });
+          const result = (await response.json()) as RemoteSaveResponse;
+
+          if (response.status === 409 || !result.ok) {
+            isApplyingRemoteSnapshotRef.current = true;
+            loadProjectSnapshot(result.project.snapshot);
+            remoteVersionRef.current = result.project.snapshotVersion;
+            latestEventIdRef.current = result.project.latestEventId;
+            lastPersistedProjectSignatureRef.current = JSON.stringify(
+              useTreeStore.getState().getProjectSnapshot(),
+            );
+            window.setTimeout(() => {
+              isApplyingRemoteSnapshotRef.current = false;
+            }, 0);
+            return;
+          }
+
+          remoteVersionRef.current = result.project.snapshotVersion;
+          latestEventIdRef.current = result.project.latestEventId;
           lastPersistedProjectSignatureRef.current = JSON.stringify(
             useTreeStore.getState().getProjectSnapshot(),
           );
+          markCardImagesPersisted(pendingImageAssets.map((asset) => asset.cardId));
         } catch (error) {
-          console.error("No se pudo guardar el proyecto en la carpeta seleccionada.", error);
+          console.error("No se pudo guardar el proyecto remoto.", error);
         }
       })();
     }, AUTOSAVE_DEBOUNCE_MS);
@@ -1964,12 +2058,106 @@ export function StudyTreeApp() {
     };
   }, [
     bootState,
-    directoryHandle,
+    identity,
+    loadProjectSnapshot,
     markCardImagesPersisted,
     pendingAssetSignature,
     pendingImageAssets,
     projectSignature,
   ]);
+
+  useEffect(() => {
+    if (bootState !== "ready" || !identity) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollEvents = async () => {
+      try {
+        const eventsResponse = await fetch(`/api/events?since=${latestEventIdRef.current}`, {
+          cache: "no-store",
+        });
+
+        if (!eventsResponse.ok) {
+          return;
+        }
+
+        const { events } = (await eventsResponse.json()) as {
+          events: { id: number; clientId: string | null; snapshotVersion: number }[];
+        };
+        const hasRemoteEvent = events.some((event) => event.clientId !== identity.clientId);
+
+        if (!hasRemoteEvent || cancelled) {
+          if (events.length > 0) {
+            latestEventIdRef.current = Math.max(latestEventIdRef.current, ...events.map((event) => event.id));
+          }
+          return;
+        }
+
+        const project = await fetchRemoteProject();
+
+        if (cancelled || project.snapshotVersion <= remoteVersionRef.current) {
+          return;
+        }
+
+        isApplyingRemoteSnapshotRef.current = true;
+        loadProjectSnapshot(project.snapshot);
+        remoteVersionRef.current = project.snapshotVersion;
+        latestEventIdRef.current = project.latestEventId;
+        lastPersistedProjectSignatureRef.current = JSON.stringify(
+          useTreeStore.getState().getProjectSnapshot(),
+        );
+        window.setTimeout(() => {
+          isApplyingRemoteSnapshotRef.current = false;
+        }, 0);
+      } catch (error) {
+        console.error("No se pudieron sincronizar cambios remotos.", error);
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void pollEvents();
+    }, REMOTE_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [bootState, identity, loadProjectSnapshot]);
+
+  useEffect(() => {
+    if (bootState !== "ready" || !identity) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollPresence = async () => {
+      try {
+        const response = await fetch("/api/presence", { cache: "no-store" });
+
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        const body = (await response.json()) as { presence: PresenceState[] };
+        setPresence(body.presence.filter((item) => item.clientId !== identity.clientId));
+      } catch (error) {
+        console.error("No se pudo cargar presencia.", error);
+      }
+    };
+
+    void pollPresence();
+    const intervalId = window.setInterval(() => {
+      void pollPresence();
+    }, PRESENCE_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [bootState, identity]);
 
   useEffect(() => {
     window.addEventListener("keydown", onGlobalKeyDown);
@@ -1991,37 +2179,57 @@ export function StudyTreeApp() {
   if (bootState !== "ready") {
     return (
       <main className="minimal-shell">
-        <section className="directory-gate" aria-label="Seleccionar carpeta">
+        <section className="directory-gate" aria-label="Entrar al proyecto">
           <div className="question-stage-backdrop" />
-          {bootState === "needs-directory" ? (
+          {bootState === "needs-name" ? (
             <div className="directory-gate-panel">
               <span className="directory-gate-eyebrow">Study Tree</span>
-              <h1>Selecciona una carpeta para entrar</h1>
-              <p>
-                La app usa la carpeta local como unica fuente de verdad. Cuando la
-                selecciones, se abrira el proyecto guardado ahi.
-              </p>
+              <h1>Escribe tu nombre para entrar</h1>
+              <p>Se guarda en este navegador para identificar tu cursor y tus cambios.</p>
               {bootError ? <p className="directory-gate-error">{bootError}</p> : null}
-              <button
-                type="button"
-                className="directory-gate-button"
-                onClick={() => {
-                  void onPickProjectDirectory();
+              <form
+                className="name-gate-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const name = nameDraft.trim();
+
+                  if (!name) {
+                    return;
+                  }
+
+                  const clientId = makeClientId();
+                  const nextIdentity = {
+                    clientId,
+                    name,
+                    color: getCollaboratorColor(clientId),
+                  };
+
+                  storeIdentity(nextIdentity);
+                  setIdentity(nextIdentity);
                 }}
-                disabled={
-                  !hasResolvedDirectorySupport || !canUseProjectDirectory || isPickingDirectory
-                }
               >
-                {!hasResolvedDirectorySupport
-                  ? "Verificando navegador..."
-                  : isPickingDirectory
-                    ? "Abriendo selector..."
-                    : canUseProjectDirectory
-                      ? "Seleccionar carpeta"
-                      : "No disponible en este navegador"}
-              </button>
+                <input
+                  className="name-gate-input"
+                  value={nameDraft}
+                  onChange={(event) => {
+                    setNameDraft(event.currentTarget.value);
+                  }}
+                  autoFocus
+                  maxLength={40}
+                  placeholder="Tu nombre"
+                />
+                <button type="submit" className="directory-gate-button">
+                  Entrar
+                </button>
+              </form>
             </div>
-          ) : null}
+          ) : (
+            <div className="directory-gate-panel">
+              <span className="directory-gate-eyebrow">Study Tree</span>
+              <h1>Cargando proyecto</h1>
+              {bootError ? <p className="directory-gate-error">{bootError}</p> : null}
+            </div>
+          )}
         </section>
       </main>
     );
@@ -2138,6 +2346,28 @@ export function StudyTreeApp() {
                   onPointerCancel={onCardPointerCancel}
                   onMeasure={setCardSize}
                 />
+              ))}
+            {presence
+              .filter(
+                (item) =>
+                  item.cursor &&
+                  item.activeCategoryId === activeCategoryId &&
+                  item.activeMapKind === activeMapKind &&
+                  item.activeSectionId === activeSectionId,
+              )
+              .map((item) => (
+                <div
+                  key={item.clientId}
+                  className="collaborator-cursor"
+                  style={{
+                    left: `${item.cursor!.x}px`,
+                    top: `${item.cursor!.y}px`,
+                    color: item.color,
+                  }}
+                >
+                  <span className="collaborator-cursor-mark" />
+                  <span className="collaborator-cursor-name">{item.name}</span>
+                </div>
               ))}
           </div>
         ) : null}
