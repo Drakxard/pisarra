@@ -46,6 +46,13 @@ export type DetailsTextBox = {
   y: number;
   width: number;
   height: number;
+  fontSize: "small" | "medium" | "large" | "xlarge" | "huge";
+  color: string;
+  bold: boolean;
+  strike: boolean;
+  bulleted: boolean;
+  align: "left" | "center" | "right";
+  linkUrl?: string | null;
 };
 
 export type QuestionCard = {

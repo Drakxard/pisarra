@@ -98,6 +98,13 @@ function normalizeDetailsTextBoxes(value) {
           y: Number.isFinite(textBox.y) ? textBox.y : 0,
           width: Number.isFinite(textBox.width) && textBox.width > 0 ? textBox.width : 260,
           height: Number.isFinite(textBox.height) && textBox.height > 0 ? textBox.height : 120,
+          fontSize: ["medium", "large", "xlarge", "huge"].includes(textBox.fontSize) ? textBox.fontSize : "small",
+          color: typeof textBox.color === "string" && textBox.color ? textBox.color : "#111111",
+          bold: textBox.bold === true,
+          strike: textBox.strike === true,
+          bulleted: textBox.bulleted === true,
+          align: textBox.align === "center" || textBox.align === "right" ? textBox.align : "left",
+          linkUrl: typeof textBox.linkUrl === "string" && textBox.linkUrl ? textBox.linkUrl : null,
         }))
     : [];
 }

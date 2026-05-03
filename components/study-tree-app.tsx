@@ -162,6 +162,36 @@ type DetailsTextBoxInteraction =
       originHeight: number;
     };
 
+const TEXT_BOX_FONT_SIZES: Record<DetailsTextBox["fontSize"], { label: string; className: string }> = {
+  small: { label: "Pequeno", className: "is-small" },
+  medium: { label: "Medio", className: "is-medium" },
+  large: { label: "Grande", className: "is-large" },
+  xlarge: { label: "Extragrande", className: "is-xlarge" },
+  huge: { label: "Enorme", className: "is-huge" },
+};
+const TEXT_BOX_COLORS = [
+  "#111111",
+  "#6b7280",
+  "#ef4444",
+  "#f97316",
+  "#f59e0b",
+  "#22c55e",
+  "#14b8a6",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+  "#ffffff",
+  "#f3f4f6",
+  "#fecaca",
+  "#fed7aa",
+  "#fef3c7",
+  "#bbf7d0",
+  "#cffafe",
+  "#dbeafe",
+  "#ede9fe",
+  "#fce7f3",
+] as const;
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -813,6 +843,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
   selectedTextBoxId,
   onSelect,
   onUpdate,
+  onStyle,
   onMove,
   onResize,
 }: {
@@ -821,10 +852,16 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
   selectedTextBoxId: string | null;
   onSelect: (textBoxId: string | null) => void;
   onUpdate: (cardId: string, textBoxId: string, text: string) => void;
+  onStyle: (
+    cardId: string,
+    textBoxId: string,
+    patch: Partial<Pick<DetailsTextBox, "fontSize" | "color" | "bold" | "strike" | "bulleted" | "align" | "linkUrl">>,
+  ) => void;
   onMove: (cardId: string, textBoxId: string, position: { x: number; y: number }) => void;
   onResize: (cardId: string, textBoxId: string, size: { width: number; height: number }) => void;
 }) {
   const interactionRef = useRef<DetailsTextBoxInteraction | null>(null);
+  const [openMenu, setOpenMenu] = useState<"color" | "size" | "align" | null>(null);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -878,12 +915,14 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
           <div
             key={textBox.id}
             data-text-box-id={textBox.id}
-            className={`details-text-box ${isSelected ? "is-selected" : ""}`}
+            className={`details-text-box ${isSelected ? "is-selected" : ""} ${textBox.text ? "" : "is-empty"}`}
             style={{
               left: `${textBox.x}px`,
               top: `${textBox.y}px`,
               width: `${textBox.width}px`,
               minHeight: `${textBox.height}px`,
+              color: textBox.color,
+              textAlign: textBox.align,
             }}
             onPointerDown={(event) => {
               const target = event.target as HTMLElement | null;
@@ -905,12 +944,138 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
               };
             }}
           >
+            {isSelected ? (
+              <div className="details-text-toolbar" onPointerDown={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  className="details-text-toolbar-color"
+                  aria-label="Color de texto"
+                  style={{ color: textBox.color }}
+                  onClick={() => setOpenMenu(openMenu === "color" ? null : "color")}
+                />
+                <button
+                  type="button"
+                  className="details-text-toolbar-button"
+                  onClick={() => setOpenMenu(openMenu === "size" ? null : "size")}
+                >
+                  Aa
+                </button>
+                <button
+                  type="button"
+                  className="details-text-toolbar-select"
+                  onClick={() => setOpenMenu(openMenu === "size" ? null : "size")}
+                >
+                  {TEXT_BOX_FONT_SIZES[textBox.fontSize].label}
+                </button>
+                <span className="details-text-toolbar-separator" />
+                <button
+                  type="button"
+                  className={`details-text-toolbar-button ${textBox.bold ? "is-active" : ""}`}
+                  title="Negrita Ctrl+B"
+                  onClick={() => onStyle(cardId, textBox.id, { bold: !textBox.bold })}
+                >
+                  B
+                </button>
+                <button
+                  type="button"
+                  className={`details-text-toolbar-button ${textBox.strike ? "is-active" : ""}`}
+                  title="Tachado"
+                  onClick={() => onStyle(cardId, textBox.id, { strike: !textBox.strike })}
+                >
+                  S
+                </button>
+                <button
+                  type="button"
+                  className={`details-text-toolbar-button ${textBox.linkUrl ? "is-active" : ""}`}
+                  title="Crear enlace Ctrl+Shift+U"
+                  onClick={() => {
+                    const nextUrl = textBox.linkUrl ? null : window.prompt("URL del enlace")?.trim() || null;
+                    onStyle(cardId, textBox.id, { linkUrl: nextUrl });
+                  }}
+                >
+                  Link
+                </button>
+                <button
+                  type="button"
+                  className={`details-text-toolbar-button ${textBox.bulleted ? "is-active" : ""}`}
+                  title="Lista con vinetas Ctrl+Shift+8"
+                  onClick={() => onStyle(cardId, textBox.id, { bulleted: !textBox.bulleted })}
+                >
+                  •
+                </button>
+                <button
+                  type="button"
+                  className="details-text-toolbar-button"
+                  onClick={() => setOpenMenu(openMenu === "align" ? null : "align")}
+                >
+                  {textBox.align === "left" ? "≡" : textBox.align === "center" ? "≣" : "☰"}
+                </button>
+                {openMenu === "color" ? (
+                  <div className="details-text-menu is-color">
+                    {TEXT_BOX_COLORS.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        className="details-text-color-swatch"
+                        style={{ background: color }}
+                        aria-label={`Color ${color}`}
+                        onClick={() => {
+                          onStyle(cardId, textBox.id, { color });
+                          setOpenMenu(null);
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {openMenu === "size" ? (
+                  <div className="details-text-menu is-size">
+                    {(Object.keys(TEXT_BOX_FONT_SIZES) as DetailsTextBox["fontSize"][]).map((fontSize) => (
+                      <button
+                        key={fontSize}
+                        type="button"
+                        className={textBox.fontSize === fontSize ? "is-active" : ""}
+                        onClick={() => {
+                          onStyle(cardId, textBox.id, { fontSize });
+                          setOpenMenu(null);
+                        }}
+                      >
+                        {TEXT_BOX_FONT_SIZES[fontSize].label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {openMenu === "align" ? (
+                  <div className="details-text-menu is-align">
+                    {(["left", "center", "right"] as DetailsTextBox["align"][]).map((align) => (
+                      <button
+                        key={align}
+                        type="button"
+                        className={textBox.align === align ? "is-active" : ""}
+                        onClick={() => {
+                          onStyle(cardId, textBox.id, { align });
+                          setOpenMenu(null);
+                        }}
+                      >
+                        {align === "left" ? "Izquierda" : align === "center" ? "Centro" : "Derecha"}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div
-              className="details-text-box-editor"
+              className={`details-text-box-editor ${TEXT_BOX_FONT_SIZES[textBox.fontSize].className} ${
+                textBox.bulleted ? "is-bulleted" : ""
+              }`}
               contentEditable
               suppressContentEditableWarning
               role="textbox"
               aria-multiline="true"
+              data-placeholder="Agregar texto"
+              style={{
+                fontWeight: textBox.bold ? 700 : 400,
+                textDecoration: `${textBox.strike ? "line-through" : ""} ${textBox.linkUrl ? "underline" : ""}`.trim() || undefined,
+              }}
               onInput={(event) => {
                 onUpdate(cardId, textBox.id, event.currentTarget.innerText ?? "");
               }}
@@ -1340,6 +1505,7 @@ export function StudyTreeApp() {
     deleteDetailsImage,
     addDetailsTextBox,
     updateDetailsTextBox,
+    updateDetailsTextBoxStyle,
     moveDetailsTextBox,
     resizeDetailsTextBox,
     deleteDetailsTextBox,
@@ -1687,6 +1853,29 @@ export function StudyTreeApp() {
     }
 
     if (isEditableTarget(event.target)) {
+      if (openedCardId && selectedDetailsTextBoxId && event.ctrlKey && !event.altKey) {
+        if (event.key.toLocaleLowerCase() === "b") {
+          event.preventDefault();
+          const textBox = cards[openedCardId]?.detailsTextBoxes?.find((item) => item.id === selectedDetailsTextBoxId);
+          updateDetailsTextBoxStyle(openedCardId, selectedDetailsTextBoxId, { bold: !textBox?.bold });
+          return;
+        }
+
+        if (event.shiftKey && event.key === "8") {
+          event.preventDefault();
+          const textBox = cards[openedCardId]?.detailsTextBoxes?.find((item) => item.id === selectedDetailsTextBoxId);
+          updateDetailsTextBoxStyle(openedCardId, selectedDetailsTextBoxId, { bulleted: !textBox?.bulleted });
+          return;
+        }
+
+        if (event.shiftKey && event.key.toLocaleLowerCase() === "u") {
+          event.preventDefault();
+          const textBox = cards[openedCardId]?.detailsTextBoxes?.find((item) => item.id === selectedDetailsTextBoxId);
+          const nextUrl = textBox?.linkUrl ? null : window.prompt("URL del enlace")?.trim() || null;
+          updateDetailsTextBoxStyle(openedCardId, selectedDetailsTextBoxId, { linkUrl: nextUrl });
+          return;
+        }
+      }
       return;
     }
 
@@ -1756,6 +1945,30 @@ export function StudyTreeApp() {
       deleteDetailsTextBox(openedCardId, selectedDetailsTextBoxId);
       setSelectedDetailsTextBoxId(null);
       return;
+    }
+
+    if (openedCardId && selectedDetailsTextBoxId && event.ctrlKey && !event.altKey) {
+      if (event.key.toLocaleLowerCase() === "b") {
+        event.preventDefault();
+        const textBox = cards[openedCardId]?.detailsTextBoxes?.find((item) => item.id === selectedDetailsTextBoxId);
+        updateDetailsTextBoxStyle(openedCardId, selectedDetailsTextBoxId, { bold: !textBox?.bold });
+        return;
+      }
+
+      if (event.shiftKey && event.key === "8") {
+        event.preventDefault();
+        const textBox = cards[openedCardId]?.detailsTextBoxes?.find((item) => item.id === selectedDetailsTextBoxId);
+        updateDetailsTextBoxStyle(openedCardId, selectedDetailsTextBoxId, { bulleted: !textBox?.bulleted });
+        return;
+      }
+
+      if (event.shiftKey && event.key.toLocaleLowerCase() === "u") {
+        event.preventDefault();
+        const textBox = cards[openedCardId]?.detailsTextBoxes?.find((item) => item.id === selectedDetailsTextBoxId);
+        const nextUrl = textBox?.linkUrl ? null : window.prompt("URL del enlace")?.trim() || null;
+        updateDetailsTextBoxStyle(openedCardId, selectedDetailsTextBoxId, { linkUrl: nextUrl });
+        return;
+      }
     }
 
     if (
@@ -2864,6 +3077,7 @@ export function StudyTreeApp() {
                     setSelectedDetailsTextBoxId(textBoxId);
                   }}
                   onUpdate={updateDetailsTextBox}
+                  onStyle={updateDetailsTextBoxStyle}
                   onMove={moveDetailsTextBox}
                   onResize={resizeDetailsTextBox}
                 />

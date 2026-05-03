@@ -102,6 +102,11 @@ type TreeStore = {
     placement: { x: number; y: number; width: number; height: number },
   ) => string | null;
   updateDetailsTextBox: (cardId: string, textBoxId: string, text: string) => void;
+  updateDetailsTextBoxStyle: (
+    cardId: string,
+    textBoxId: string,
+    patch: Partial<Pick<DetailsTextBox, "fontSize" | "color" | "bold" | "strike" | "bulleted" | "align" | "linkUrl">>,
+  ) => void;
   moveDetailsTextBox: (cardId: string, textBoxId: string, position: CardPosition) => void;
   resizeDetailsTextBox: (cardId: string, textBoxId: string, size: CardSize) => void;
   deleteDetailsTextBox: (cardId: string, textBoxId: string) => void;
@@ -137,6 +142,15 @@ const DEFAULT_TABLE_COLUMN_WIDTH = 160;
 const DEFAULT_TABLE_ROW_HEIGHT = 48;
 const MIN_TABLE_COLUMN_WIDTH = 72;
 const MIN_TABLE_ROW_HEIGHT = 36;
+const DEFAULT_TEXT_BOX_STYLE = {
+  fontSize: "small" as const,
+  color: "#111111",
+  bold: false,
+  strike: false,
+  bulleted: false,
+  align: "left" as const,
+  linkUrl: null as string | null,
+};
 const FIXED_SECTIONS = [
   ["definitions", "Definiciones"],
   ["theorems", "Teoremas"],
@@ -245,6 +259,22 @@ function normalizeDetailsTextBoxes(value: DetailsTextBox[] | null | undefined): 
         y: Number.isFinite(textBox.y) ? textBox.y : 0,
         width: Number.isFinite(textBox.width) && textBox.width > 0 ? textBox.width : 260,
         height: Number.isFinite(textBox.height) && textBox.height > 0 ? textBox.height : 120,
+        fontSize:
+          textBox.fontSize === "medium" ||
+          textBox.fontSize === "large" ||
+          textBox.fontSize === "xlarge" ||
+          textBox.fontSize === "huge"
+            ? textBox.fontSize
+            : DEFAULT_TEXT_BOX_STYLE.fontSize,
+        color: typeof textBox.color === "string" && textBox.color ? textBox.color : DEFAULT_TEXT_BOX_STYLE.color,
+        bold: textBox.bold === true,
+        strike: textBox.strike === true,
+        bulleted: textBox.bulleted === true,
+        align:
+          textBox.align === "center" || textBox.align === "right"
+            ? textBox.align
+            : DEFAULT_TEXT_BOX_STYLE.align,
+        linkUrl: typeof textBox.linkUrl === "string" && textBox.linkUrl ? textBox.linkUrl : null,
       };
     })
     .filter((textBox): textBox is DetailsTextBox => Boolean(textBox));
@@ -1552,6 +1582,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       y: Math.max(0, Math.round(placement.y)),
       width: Math.max(120, Math.round(placement.width)),
       height: Math.max(48, Math.round(placement.height)),
+      ...DEFAULT_TEXT_BOX_STYLE,
     };
 
     set({
@@ -1587,6 +1618,43 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     const snapshotUpdatedAt = createSnapshotTimestamp();
     const nextTextBoxes = [...textBoxes];
     nextTextBoxes[textBoxIndex] = { ...textBoxes[textBoxIndex], text: nextText };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTextBoxes: nextTextBoxes,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  updateDetailsTextBoxStyle: (cardId, textBoxId, patch) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const textBoxes = normalizeDetailsTextBoxes(card?.detailsTextBoxes);
+    const textBoxIndex = textBoxes.findIndex((textBox) => textBox.id === textBoxId);
+
+    if (!card || textBoxIndex === -1) {
+      return;
+    }
+
+    const currentTextBox = textBoxes[textBoxIndex];
+    const nextTextBox = {
+      ...currentTextBox,
+      ...patch,
+      linkUrl: patch.linkUrl === undefined ? currentTextBox.linkUrl : patch.linkUrl || null,
+    };
+
+    if (JSON.stringify(currentTextBox) === JSON.stringify(nextTextBox)) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const nextTextBoxes = [...textBoxes];
+    nextTextBoxes[textBoxIndex] = nextTextBox;
 
     set({
       cards: {

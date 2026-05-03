@@ -367,6 +367,19 @@ function normalizeDetailsTextBoxes(value: unknown): DetailsTextBox[] {
           typeof source.height === "number" && Number.isFinite(source.height) && source.height > 0
             ? source.height
             : 120,
+        fontSize:
+          source.fontSize === "medium" ||
+          source.fontSize === "large" ||
+          source.fontSize === "xlarge" ||
+          source.fontSize === "huge"
+            ? source.fontSize
+            : "small",
+        color: typeof source.color === "string" && source.color ? source.color : "#111111",
+        bold: source.bold === true,
+        strike: source.strike === true,
+        bulleted: source.bulleted === true,
+        align: source.align === "center" || source.align === "right" ? source.align : "left",
+        linkUrl: typeof source.linkUrl === "string" && source.linkUrl ? source.linkUrl : null,
       };
     })
     .filter((textBox): textBox is DetailsTextBox => Boolean(textBox));
