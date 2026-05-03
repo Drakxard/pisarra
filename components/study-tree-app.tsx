@@ -1192,6 +1192,7 @@ export function StudyTreeApp() {
     getPendingImageAssets,
     markCardImagesPersisted,
     loadProjectSnapshot,
+    mergeRemoteProjectSnapshot,
     resetProject,
     runSearch,
     goToNextSearchResult,
@@ -1257,6 +1258,22 @@ export function StudyTreeApp() {
     cameraRef.current = nextCamera;
     setCameraState(nextCamera);
   };
+
+  const applyRemoteProjectSnapshot = useEffectEvent((project: RemoteProject) => {
+    const previousCamera = cameraRef.current;
+
+    isApplyingRemoteSnapshotRef.current = true;
+    mergeRemoteProjectSnapshot(project.snapshot);
+    remoteVersionRef.current = project.snapshotVersion;
+    latestEventIdRef.current = project.latestEventId;
+    lastPersistedProjectSignatureRef.current = JSON.stringify(
+      useTreeStore.getState().getProjectSnapshot(),
+    );
+    setCamera(previousCamera);
+    window.setTimeout(() => {
+      isApplyingRemoteSnapshotRef.current = false;
+    }, 0);
+  });
 
   const sendPresence = useEffectEvent((cursor: PresenceState["cursor"]) => {
     if (!identity || bootState !== "ready") {
@@ -2028,16 +2045,8 @@ export function StudyTreeApp() {
           const result = (await response.json()) as RemoteSaveResponse;
 
           if (response.status === 409 || !result.ok) {
-            isApplyingRemoteSnapshotRef.current = true;
-            loadProjectSnapshot(result.project.snapshot);
-            remoteVersionRef.current = result.project.snapshotVersion;
-            latestEventIdRef.current = result.project.latestEventId;
-            lastPersistedProjectSignatureRef.current = JSON.stringify(
-              useTreeStore.getState().getProjectSnapshot(),
-            );
-            window.setTimeout(() => {
-              isApplyingRemoteSnapshotRef.current = false;
-            }, 0);
+            console.info("Snapshot remoto mas nuevo; se sincroniza sin cambiar de vista.");
+            applyRemoteProjectSnapshot(result.project);
             return;
           }
 
@@ -2058,6 +2067,7 @@ export function StudyTreeApp() {
     };
   }, [
     bootState,
+    applyRemoteProjectSnapshot,
     identity,
     loadProjectSnapshot,
     markCardImagesPersisted,
@@ -2101,16 +2111,7 @@ export function StudyTreeApp() {
           return;
         }
 
-        isApplyingRemoteSnapshotRef.current = true;
-        loadProjectSnapshot(project.snapshot);
-        remoteVersionRef.current = project.snapshotVersion;
-        latestEventIdRef.current = project.latestEventId;
-        lastPersistedProjectSignatureRef.current = JSON.stringify(
-          useTreeStore.getState().getProjectSnapshot(),
-        );
-        window.setTimeout(() => {
-          isApplyingRemoteSnapshotRef.current = false;
-        }, 0);
+        applyRemoteProjectSnapshot(project);
       } catch (error) {
         console.error("No se pudieron sincronizar cambios remotos.", error);
       }
@@ -2124,7 +2125,7 @@ export function StudyTreeApp() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [bootState, identity, loadProjectSnapshot]);
+  }, [applyRemoteProjectSnapshot, bootState, identity]);
 
   useEffect(() => {
     if (bootState !== "ready" || !identity) {

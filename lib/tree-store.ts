@@ -110,6 +110,7 @@ type TreeStore = {
   getPendingImageAssets: () => PendingImageAsset[];
   markCardImagesPersisted: (cardIds: string[]) => void;
   loadProjectSnapshot: (snapshot: ProjectSnapshot, draftImage?: DraftImage | null) => void;
+  mergeRemoteProjectSnapshot: (snapshot: ProjectSnapshot) => void;
   resetProject: () => void;
   runSearch: (query: string) => boolean;
   goToNextSearchResult: () => boolean;
@@ -1817,6 +1818,85 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       snapshotUpdatedAt: normalized.savedAt,
       canUndoDeletion: false,
       nextZIndex: 1,
+      ...getEmptySearchState(),
+      ...getEmptyPasteFeedback(),
+    });
+  },
+  mergeRemoteProjectSnapshot: (snapshot) => {
+    const currentState = get();
+    const normalized = normalizeProjectSnapshot(snapshot);
+    const currentActiveCategory =
+      currentState.activeCategoryId ? normalized.categories[currentState.activeCategoryId] : null;
+    const currentActiveSection =
+      currentActiveCategory &&
+      currentState.activeMapKind === "section" &&
+      currentState.activeSectionId
+        ? currentActiveCategory.sections[currentState.activeSectionId]
+        : null;
+    const canKeepActiveMap =
+      Boolean(currentActiveCategory) &&
+      (currentState.activeMapKind === "main" ||
+        (currentState.activeMapKind === "section" && Boolean(currentActiveSection)));
+    const nextCards = canKeepActiveMap
+      ? cloneCards(
+          currentState.activeMapKind === "section" && currentActiveSection
+            ? currentActiveSection.cards
+            : currentActiveCategory!.cards,
+        )
+      : {};
+
+    const allNextCards = Object.fromEntries(
+      getAllCardsFromCategories(normalized.categories).map((card) => [card.id, card]),
+    );
+    revokeUnusedCardImageUrls(currentState.cards, allNextCards);
+
+    if (!canKeepActiveMap) {
+      revokeDraftImageUrl(currentState.draftImage);
+      disposeUndoSnapshot(lastDeletionSnapshot, currentState.cards);
+      lastDeletionSnapshot = null;
+
+      set({
+        categories: normalized.categories,
+        activeCategoryId: null,
+        activeMapKind: null,
+        activeSectionId: null,
+        selectedCategoryId: normalized.selectedCategoryId,
+        categoryDraftText: normalized.categoryDraftText,
+        cards: {},
+        selectedCardId: null,
+        openedCardId: null,
+        draftText: "",
+        draftImage: null,
+        snapshotUpdatedAt: normalized.savedAt,
+        canUndoDeletion: false,
+        nextZIndex: 1,
+        ...getEmptySearchState(),
+        ...getEmptyPasteFeedback(),
+      });
+      return;
+    }
+
+    set({
+      categories: normalized.categories,
+      activeCategoryId: currentState.activeCategoryId,
+      activeMapKind: currentState.activeMapKind,
+      activeSectionId: currentState.activeSectionId,
+      selectedCategoryId: currentState.activeCategoryId,
+      categoryDraftText: normalized.categoryDraftText,
+      cards: nextCards,
+      selectedCardId:
+        currentState.selectedCardId && nextCards[currentState.selectedCardId]
+          ? currentState.selectedCardId
+          : null,
+      openedCardId:
+        currentState.openedCardId && nextCards[currentState.openedCardId]
+          ? currentState.openedCardId
+          : null,
+      draftText: currentState.draftText,
+      draftImage: currentState.draftImage,
+      snapshotUpdatedAt: normalized.savedAt,
+      canUndoDeletion: false,
+      nextZIndex: getNextZIndex(nextCards),
       ...getEmptySearchState(),
       ...getEmptyPasteFeedback(),
     });
