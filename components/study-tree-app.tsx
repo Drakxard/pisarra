@@ -1275,7 +1275,14 @@ export function StudyTreeApp() {
     }, 0);
   });
 
-  const sendPresence = useEffectEvent((cursor: PresenceState["cursor"]) => {
+  const sendPresence = useEffectEvent(
+    (
+      cursor: PresenceState["cursor"],
+      options?: {
+        surface?: PresenceState["surface"];
+        openedCardId?: string | null;
+      },
+    ) => {
     if (!identity || bootState !== "ready") {
       return;
     }
@@ -1297,9 +1304,11 @@ export function StudyTreeApp() {
       body: JSON.stringify({
         ...identity,
         cursor,
+        surface: options?.surface ?? (openedCardId ? "card-modal" : "map"),
         activeCategoryId,
         activeMapKind,
         activeSectionId,
+        openedCardId: options?.openedCardId ?? openedCardId ?? null,
       }),
     }).catch((error) => {
       console.error("No se pudo actualizar presencia.", error);
@@ -1672,6 +1681,9 @@ export function StudyTreeApp() {
       sendPresence({
         x: event.clientX - rect.left - cameraRef.current.x,
         y: event.clientY - rect.top - cameraRef.current.y,
+      }, {
+        surface: "map",
+        openedCardId: null,
       });
     }
 
@@ -1934,7 +1946,7 @@ export function StudyTreeApp() {
 
   useEffect(() => {
     sendPresence(lastPresenceRef.current);
-  }, [activeCategoryId, activeMapKind, activeSectionId, sendPresence]);
+  }, [activeCategoryId, activeMapKind, activeSectionId, openedCardId, sendPresence]);
 
   useEffect(() => {
     if (!activeSearchResult) {
@@ -2352,6 +2364,7 @@ export function StudyTreeApp() {
               .filter(
                 (item) =>
                   item.cursor &&
+                  item.surface === "map" &&
                   item.activeCategoryId === activeCategoryId &&
                   item.activeMapKind === activeMapKind &&
                   item.activeSectionId === activeSectionId,
@@ -2409,6 +2422,20 @@ export function StudyTreeApp() {
         {activeCategoryId && openedCard ? (
           <div
             className="card-modal-overlay"
+            onPointerMove={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+
+              sendPresence(
+                {
+                  x: event.clientX - rect.left,
+                  y: event.clientY - rect.top,
+                },
+                {
+                  surface: "card-modal",
+                  openedCardId: openedCard.id,
+                },
+              );
+            }}
             onPointerDown={(event) => {
               if (event.target === event.currentTarget) {
                 closeCard();
@@ -2563,6 +2590,30 @@ export function StudyTreeApp() {
                   +
                 </button>
               </div>
+              {presence
+                .filter(
+                  (item) =>
+                    item.cursor &&
+                    item.surface === "card-modal" &&
+                    item.activeCategoryId === activeCategoryId &&
+                    item.activeMapKind === activeMapKind &&
+                    item.activeSectionId === activeSectionId &&
+                    item.openedCardId === openedCard.id,
+                )
+                .map((item) => (
+                  <div
+                    key={item.clientId}
+                    className="collaborator-cursor is-modal"
+                    style={{
+                      left: `${item.cursor!.x}px`,
+                      top: `${item.cursor!.y}px`,
+                      color: item.color,
+                    }}
+                  >
+                    <span className="collaborator-cursor-mark" />
+                    <span className="collaborator-cursor-name">{item.name}</span>
+                  </div>
+                ))}
             </div>
           </div>
         ) : null}

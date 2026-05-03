@@ -50,12 +50,17 @@ export async function ensureSchema() {
       name text not null,
       color text not null,
       cursor jsonb,
+      surface text not null default 'map',
       active_category_id text,
       active_map_kind text,
       active_section_id text,
+      opened_card_id text,
       updated_at timestamptz not null default now(),
       primary key (project_id, client_id)
     );
+
+    alter table presence add column if not exists surface text not null default 'map';
+    alter table presence add column if not exists opened_card_id text;
   `);
 }
 
@@ -234,19 +239,23 @@ export async function upsertPresence(
         name,
         color,
         cursor,
+        surface,
         active_category_id,
         active_map_kind,
         active_section_id,
+        opened_card_id,
         updated_at
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, now())
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
       on conflict (project_id, client_id) do update set
         name = excluded.name,
         color = excluded.color,
         cursor = excluded.cursor,
+        surface = excluded.surface,
         active_category_id = excluded.active_category_id,
         active_map_kind = excluded.active_map_kind,
         active_section_id = excluded.active_section_id,
+        opened_card_id = excluded.opened_card_id,
         updated_at = now()
     `,
     [
@@ -255,9 +264,11 @@ export async function upsertPresence(
       presence.name,
       presence.color,
       presence.cursor ? JSON.stringify(presence.cursor) : null,
+      presence.surface,
       presence.activeCategoryId,
       presence.activeMapKind,
       presence.activeSectionId,
+      presence.openedCardId,
     ],
   );
 }
@@ -267,7 +278,7 @@ export async function listPresence(projectId = DEFAULT_PROJECT_ID): Promise<Pres
 
   const result = await getPool().query(
     `
-      select client_id, name, color, cursor, active_category_id, active_map_kind, active_section_id, updated_at
+      select client_id, name, color, cursor, surface, active_category_id, active_map_kind, active_section_id, opened_card_id, updated_at
       from presence
       where project_id = $1 and updated_at > now() - ($2 || ' seconds')::interval
       order by updated_at desc
@@ -280,9 +291,11 @@ export async function listPresence(projectId = DEFAULT_PROJECT_ID): Promise<Pres
     name: row.name,
     color: row.color,
     cursor: row.cursor,
+    surface: row.surface === "card-modal" ? "card-modal" : "map",
     activeCategoryId: row.active_category_id,
     activeMapKind: row.active_map_kind,
     activeSectionId: row.active_section_id,
+    openedCardId: row.opened_card_id,
     updatedAt: row.updated_at.toISOString(),
   }));
 }

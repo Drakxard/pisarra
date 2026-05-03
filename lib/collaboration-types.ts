@@ -13,9 +13,11 @@ export type PresenceCursor = {
 
 export type PresenceState = CollaboratorIdentity & {
   cursor: PresenceCursor | null;
+  surface: "map" | "card-modal";
   activeCategoryId: string | null;
   activeMapKind: "main" | "section" | null;
   activeSectionId: string | null;
+  openedCardId: string | null;
   updatedAt: string;
 };
 

@@ -211,6 +211,10 @@ img {
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.14);
 }
 
+.collaborator-cursor.is-modal {
+  z-index: 40;
+}
+
 .empty-state {
   position: absolute;
   left: 50%;
