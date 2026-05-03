@@ -2469,7 +2469,16 @@ export function StudyTreeApp() {
               >
                 X
               </button>
-              <div className="card-modal-body">
+              <div
+                className="card-modal-body"
+                onPointerDownCapture={(event) => {
+                  const target = event.target as HTMLElement | null;
+
+                  if (!target?.closest(".details-image-object")) {
+                    setSelectedDetailsImageId(null);
+                  }
+                }}
+              >
                 <CardContent card={openedCard} mode="full" />
                 <CardDetailsEditor
                   cardId={openedCard.id}
@@ -2477,10 +2486,12 @@ export function StudyTreeApp() {
                   onSave={updateCardDetails}
                   onStartTyping={() => {
                     setShowTableMenu(false);
+                    setSelectedDetailsImageId(null);
                   }}
                   onPasteTable={(cells) => {
                     setDetailsTableFromCells(openedCard.id, cells);
                     setShowTableMenu(false);
+                    setSelectedDetailsImageId(null);
                   }}
                   onPasteImage={(file) => {
                     void pasteDetailsImage(openedCard.id, file);
@@ -2496,9 +2507,11 @@ export function StudyTreeApp() {
                     onPasteTable={(cells) => {
                       setDetailsTableFromCells(openedCard.id, cells);
                       setShowTableMenu(false);
+                      setSelectedDetailsImageId(null);
                     }}
                     onStartTyping={() => {
                       setShowTableMenu(false);
+                      setSelectedDetailsImageId(null);
                     }}
                   />
                 ) : null}
