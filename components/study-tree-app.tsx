@@ -1917,6 +1917,7 @@ export function StudyTreeApp() {
     deleteExerciseReference,
     selectCard,
     openCard,
+    openCardFromExerciseReference,
     closeCard,
     moveCard,
     setCardSize,
@@ -2324,12 +2325,22 @@ export function StudyTreeApp() {
       return;
     }
 
+    const originMapKind = activeMapKind;
+    if (!originMapKind) {
+      return;
+    }
+
     if (activeMapKind !== "section" || activeSectionId !== sourceSectionId) {
       openCategorySection(activeCategoryId, sourceSectionId);
     }
 
     selectCard(sourceCardId);
-    openCard(sourceCardId);
+    openCardFromExerciseReference(sourceCardId, {
+      categoryId: activeCategoryId,
+      mapKind: originMapKind,
+      sectionId: activeSectionId,
+      selectedCardId,
+    });
   });
 
   const clearUndoTimer = useEffectEvent(() => {

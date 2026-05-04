@@ -33,6 +33,13 @@ type CardSelectionOptions = {
   bringToFront?: boolean;
 };
 
+type CardOpenOrigin = {
+  categoryId: string;
+  mapKind: "main" | "section";
+  sectionId: string | null;
+  selectedCardId: string | null;
+};
+
 type TreeStore = {
   categories: Record<string, StudyCategory>;
   activeCategoryId: string | null;
@@ -43,6 +50,7 @@ type TreeStore = {
   cards: Record<string, QuestionCard>;
   selectedCardId: string | null;
   openedCardId: string | null;
+  cardOpenOrigin: CardOpenOrigin | null;
   draftText: string;
   draftImage: DraftImage | null;
   snapshotUpdatedAt: string;
@@ -116,6 +124,7 @@ type TreeStore = {
   deleteExerciseReference: (cardId: string, referenceId: string) => void;
   selectCard: (cardId: string | null, options?: CardSelectionOptions) => void;
   openCard: (cardId: string) => void;
+  openCardFromExerciseReference: (cardId: string, origin: CardOpenOrigin) => void;
   closeCard: () => void;
   moveCard: (cardId: string, position: CardPosition) => void;
   setCardSize: (cardId: string, size: CardSize) => void;
@@ -562,6 +571,7 @@ function createEmptyState() {
     cards: {} as Record<string, QuestionCard>,
     selectedCardId: null,
     openedCardId: null,
+    cardOpenOrigin: null as CardOpenOrigin | null,
     draftText: "",
     draftImage: null as DraftImage | null,
     snapshotUpdatedAt: createSnapshotTimestamp(),
@@ -985,6 +995,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       cards: cloneCards(category.cards),
       selectedCardId: category.selectedCardId,
       openedCardId: null,
+      cardOpenOrigin: null,
       draftText: category.draftText,
       draftImage: null,
       canUndoDeletion: false,
@@ -1024,6 +1035,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       cards: cloneCards(section.cards),
       selectedCardId: section.selectedCardId,
       openedCardId: null,
+      cardOpenOrigin: null,
       draftText: section.draftText,
       draftImage: null,
       canUndoDeletion: false,
@@ -1053,6 +1065,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       cards: {},
       selectedCardId: null,
       openedCardId: null,
+      cardOpenOrigin: null,
       draftText: "",
       draftImage: null,
       canUndoDeletion: false,
@@ -2014,11 +2027,97 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
 
     set({
       openedCardId: cardId,
+      cardOpenOrigin: null,
+    });
+  },
+  openCardFromExerciseReference: (cardId, origin) => {
+    const { cards } = get();
+
+    if (!cards[cardId]) {
+      return;
+    }
+
+    set({
+      openedCardId: cardId,
+      cardOpenOrigin: origin,
     });
   },
   closeCard: () => {
+    const state = get();
+
+    if (!state.cardOpenOrigin) {
+      set({
+        openedCardId: null,
+        cardOpenOrigin: null,
+      });
+      return;
+    }
+
+    const categories = getSyncedCategories(state);
+    const originCategory = categories[state.cardOpenOrigin.categoryId];
+
+    if (!originCategory) {
+      set({
+        categories,
+        openedCardId: null,
+        cardOpenOrigin: null,
+      });
+      return;
+    }
+
+    if (state.cardOpenOrigin.mapKind === "section" && state.cardOpenOrigin.sectionId) {
+      const originSection = originCategory.sections[state.cardOpenOrigin.sectionId];
+
+      if (originSection) {
+        set({
+          categories: {
+            ...categories,
+            [originCategory.id]: {
+              ...originCategory,
+              activeSectionId: originSection.id,
+            },
+          },
+          activeCategoryId: originCategory.id,
+          activeMapKind: "section",
+          activeSectionId: originSection.id,
+          selectedCategoryId: originCategory.id,
+          cards: cloneCards(originSection.cards),
+          selectedCardId:
+            state.cardOpenOrigin.selectedCardId && originSection.cards[state.cardOpenOrigin.selectedCardId]
+              ? state.cardOpenOrigin.selectedCardId
+              : originSection.selectedCardId,
+          openedCardId: null,
+          cardOpenOrigin: null,
+          draftText: originSection.draftText,
+          draftImage: null,
+          canUndoDeletion: false,
+          nextZIndex: getNextZIndex(originSection.cards),
+          ...getEmptySearchState(),
+          ...getEmptyPasteFeedback(),
+        });
+        return;
+      }
+    }
+
     set({
+      categories,
+      activeCategoryId: originCategory.id,
+      activeMapKind: "main",
+      activeSectionId: null,
+      selectedCategoryId: originCategory.id,
+      cards: cloneCards(originCategory.cards),
+      selectedCardId:
+        state.cardOpenOrigin.selectedCardId && originCategory.cards[state.cardOpenOrigin.selectedCardId]
+          ? state.cardOpenOrigin.selectedCardId
+          : originCategory.selectedCardId,
       openedCardId: null,
+      cardOpenOrigin: null,
+      draftText: originCategory.draftText,
+      draftImage: null,
+      canUndoDeletion: false,
+      nextZIndex: getNextZIndex(originCategory.cards),
+      ...getEmptySearchState(),
+      ...getEmptyPasteFeedback(),
     });
   },
   moveCard: (cardId, position) => {
@@ -2307,6 +2406,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       cards: {},
       selectedCardId: null,
       openedCardId: null,
+      cardOpenOrigin: null,
       draftText: "",
       draftImage,
       snapshotUpdatedAt: normalized.savedAt,
@@ -2359,6 +2459,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         cards: {},
         selectedCardId: null,
         openedCardId: null,
+        cardOpenOrigin: null,
         draftText: "",
         draftImage: null,
         snapshotUpdatedAt: normalized.savedAt,
@@ -2385,6 +2486,16 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       openedCardId:
         currentState.openedCardId && nextCards[currentState.openedCardId]
           ? currentState.openedCardId
+          : null,
+      cardOpenOrigin:
+        currentState.cardOpenOrigin &&
+        normalized.categories[currentState.cardOpenOrigin.categoryId] &&
+        (currentState.cardOpenOrigin.mapKind === "main" ||
+          (currentState.cardOpenOrigin.sectionId &&
+            normalized.categories[currentState.cardOpenOrigin.categoryId].sections[
+              currentState.cardOpenOrigin.sectionId
+            ]))
+          ? currentState.cardOpenOrigin
           : null,
       draftText: currentState.draftText,
       draftImage: currentState.draftImage,
