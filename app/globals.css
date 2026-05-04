@@ -798,23 +798,18 @@ img {
 
 .exercise-reference-object {
   position: absolute;
-  pointer-events: auto;
-  border: 1px solid rgba(72, 72, 72, 0.42);
-  border-radius: 0.7rem;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 14px 30px rgba(71, 48, 22, 0.14);
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.55rem;
+  width: auto;
+  max-width: none;
+  gap: 0.8rem;
   cursor: move;
-  text-align: left;
   user-select: none;
 }
 
 .exercise-reference-object.is-selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(58, 166, 255, 0.24), 0 16px 34px rgba(71, 48, 22, 0.18);
+  box-shadow:
+    0 28px 60px rgba(78, 56, 32, 0.16),
+    0 0 0 0.18rem rgba(197, 124, 53, 0.14);
 }
 
 .exercise-reference-object.is-missing {
@@ -823,26 +818,24 @@ img {
 }
 
 .exercise-reference-preview {
-  min-height: 7rem;
-  overflow: hidden;
-  pointer-events: none;
+  display: contents;
 }
 
 .exercise-reference-preview .question-card-image-shell {
-  margin-bottom: 0.35rem;
+  margin-bottom: 0;
 }
 
 .exercise-reference-preview .question-card-copy {
-  font-size: 0.84rem;
-  line-height: 1.25;
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .exercise-reference-title {
+  display: none;
+}
+
+.exercise-reference-object.is-missing .exercise-reference-title {
   display: block;
-  font-size: 0.88rem;
-  font-weight: 650;
-  line-height: 1.2;
-  color: #111111;
 }
 
 .card-modal-body .question-card-copy.is-full {

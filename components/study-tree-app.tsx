@@ -215,6 +215,13 @@ type ExerciseCandidate = Pick<ExerciseReferenceItem, "sourceSectionId" | "source
   card: QuestionCard;
 };
 
+type Rect = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
 function normalizeExerciseSearchText(value: string) {
   return value
     .normalize("NFD")
@@ -283,6 +290,47 @@ function buildExerciseQuery(card: QuestionCard) {
     .map((value) => String(value ?? "").replace(/\r\n?/g, "\n").trim())
     .filter(Boolean)
     .join(" ");
+}
+
+function createRect(x: number, y: number, width: number, height: number): Rect {
+  return {
+    left: x,
+    top: y,
+    right: x + width,
+    bottom: y + height,
+  };
+}
+
+function rectsOverlap(a: Rect, b: Rect) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function getElementRectWithinBody(element: Element, body: HTMLElement): Rect | null {
+  const elementRect = element.getBoundingClientRect();
+  const bodyRect = body.getBoundingClientRect();
+
+  if (elementRect.width <= 0 || elementRect.height <= 0) {
+    return null;
+  }
+
+  return createRect(
+    elementRect.left - bodyRect.left + body.scrollLeft,
+    elementRect.top - bodyRect.top + body.scrollTop,
+    elementRect.width,
+    elementRect.height,
+  );
+}
+
+function findAvailableExerciseRect(candidate: Rect, occupied: Rect[], stepY: number) {
+  let next = { ...candidate };
+  let guard = 0;
+
+  while (occupied.some((rect) => rectsOverlap(next, rect)) && guard < 200) {
+    next = createRect(next.left, next.bottom + stepY, next.right - next.left, next.bottom - next.top);
+    guard += 1;
+  }
+
+  return next;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -1419,7 +1467,7 @@ const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
         return (
           <div
             key={reference.id}
-            className={`exercise-reference-object ${isSelected ? "is-selected" : ""} ${source ? "" : "is-missing"}`}
+            className={`question-card exercise-reference-object ${isSelected ? "is-selected" : ""} ${source ? "" : "is-missing"}`}
             style={{
               left: `${reference.x}px`,
               top: `${reference.y}px`,
@@ -2178,28 +2226,61 @@ export function StudyTreeApp() {
     const modalBody = stageRef.current?.querySelector(".card-modal-body");
     const bodyElement = modalBody instanceof HTMLElement ? modalBody : null;
     const availableWidth = Math.max(
-      EXERCISE_RESULT_CARD_WIDTH,
-      (bodyElement?.clientWidth ?? EXERCISE_RESULT_CARD_WIDTH * 2) - 48,
+      CARD_FALLBACK_WIDTH,
+      (bodyElement?.clientWidth ?? CARD_FALLBACK_WIDTH * 2) - 48,
     );
     const columns = Math.max(
       1,
-      Math.min(2, Math.floor(availableWidth / (EXERCISE_RESULT_CARD_WIDTH + EXERCISE_RESULT_GAP)) || 1),
+      Math.min(2, Math.floor(availableWidth / (CARD_FALLBACK_WIDTH + EXERCISE_RESULT_GAP)) || 1),
     );
     const originX = 24;
     const originY = (bodyElement?.scrollTop ?? 0) + (bodyElement?.clientHeight ?? 0) + 32;
     const timestamp = new Date().toISOString();
+    const occupiedRects: Rect[] = [];
+
+    if (bodyElement) {
+      for (const selector of [".question-card-image-shell.is-full", ".question-card-copy.is-full", ".details-table"]) {
+        for (const element of Array.from(bodyElement.querySelectorAll(selector))) {
+          const rect = getElementRectWithinBody(element, bodyElement);
+
+          if (rect) {
+            occupiedRects.push(rect);
+          }
+        }
+      }
+    }
+
+    for (const image of sourceCard.detailsImages ?? []) {
+      occupiedRects.push(createRect(image.x, image.y, image.width, image.height));
+    }
+
+    for (const textBox of sourceCard.detailsTextBoxes ?? []) {
+      occupiedRects.push(createRect(textBox.x, textBox.y, textBox.width, textBox.height));
+    }
+
     const references = matches.map((match, index) => {
+      const matchCard = match.card;
       const column = index % columns;
       const row = Math.floor(index / columns);
+      const width = Math.max(220, Math.round(matchCard.size?.width ?? CARD_FALLBACK_WIDTH));
+      const height = Math.max(EXERCISE_RESULT_MIN_HEIGHT, Math.round(matchCard.size?.height ?? CARD_FALLBACK_HEIGHT));
+      const candidateRect = createRect(
+        originX + column * (width + EXERCISE_RESULT_GAP),
+        Math.max(24, Math.round(originY + row * (height + EXERCISE_RESULT_GAP))),
+        width,
+        height,
+      );
+      const nextRect = findAvailableExerciseRect(candidateRect, occupiedRects, EXERCISE_RESULT_GAP);
+      occupiedRects.push(nextRect);
 
       return {
         id: makeClientId(),
         sourceSectionId: match.sourceSectionId,
         sourceCardId: match.sourceCardId,
-        x: originX + column * (EXERCISE_RESULT_CARD_WIDTH + EXERCISE_RESULT_GAP),
-        y: Math.max(24, Math.round(originY + row * (EXERCISE_RESULT_MIN_HEIGHT + EXERCISE_RESULT_GAP))),
-        width: EXERCISE_RESULT_CARD_WIDTH,
-        height: EXERCISE_RESULT_MIN_HEIGHT,
+        x: Math.round(nextRect.left),
+        y: Math.round(nextRect.top),
+        width: Math.round(nextRect.right - nextRect.left),
+        height: Math.round(nextRect.bottom - nextRect.top),
         createdAt: timestamp,
         updatedAt: timestamp,
       } satisfies ExerciseReferenceItem;
