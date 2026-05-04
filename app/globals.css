@@ -895,7 +895,6 @@ img {
   cursor: grab;
   pointer-events: auto;
   transform-origin: center center;
-  touch-action: none;
 }
 
 .details-image-object.is-selected {
@@ -919,7 +918,6 @@ img {
   background: transparent;
   color: #111111;
   pointer-events: auto;
-  touch-action: none;
 }
 
 .details-text-box.is-selected {
@@ -1175,7 +1173,6 @@ img {
   border: 1px solid transparent;
   cursor: grab;
   pointer-events: auto;
-  touch-action: none;
 }
 
 .details-table-object.is-selected {

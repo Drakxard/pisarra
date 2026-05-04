@@ -58,6 +58,11 @@ export type DetailsTextBox = {
   linkUrl?: string | null;
 };
 
+export type DetailsTextBoxStyleDefaults = Pick<
+  DetailsTextBox,
+  "fontSize" | "color" | "bold" | "strike" | "bulleted" | "align"
+>;
+
 export type ExerciseReferenceItem = {
   id: string;
   sourceSectionId: "definitions" | "theorems";
@@ -133,6 +138,7 @@ export type ProjectSnapshot = {
   cards?: Record<string, QuestionCard>;
   selectedCardId?: string | null;
   draftText?: string;
+  detailsTextBoxStyleDefaults?: DetailsTextBoxStyleDefaults;
   savedAt: string;
 };
 

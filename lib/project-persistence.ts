@@ -4,6 +4,7 @@ import type {
   DetailsImage,
   DetailsTable,
   DetailsTextBox,
+  DetailsTextBoxStyleDefaults,
   PendingImageAsset,
   ProjectSnapshot,
   QuestionCard,
@@ -29,6 +30,25 @@ type FileSystemPermissionMode = "read" | "readwrite";
 type RawProjectSnapshot = Partial<Omit<ProjectSnapshot, "version">> & {
   version?: number;
 };
+
+function normalizeDetailsTextBoxStyleDefaults(
+  value: Partial<DetailsTextBoxStyleDefaults> | null | undefined,
+): DetailsTextBoxStyleDefaults {
+  return {
+    fontSize:
+      value?.fontSize === "medium" ||
+      value?.fontSize === "large" ||
+      value?.fontSize === "xlarge" ||
+      value?.fontSize === "huge"
+        ? value.fontSize
+        : "small",
+    color: typeof value?.color === "string" && value.color ? value.color : "#111111",
+    bold: value?.bold === true,
+    strike: value?.strike === true,
+    bulleted: value?.bulleted === true,
+    align: value?.align === "center" || value?.align === "right" ? value.align : "left",
+  };
+}
 
 export class IncompatibleProjectVersionError extends Error {
   version: number | null;
@@ -502,6 +522,7 @@ function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot
         ? snapshot.selectedCategoryId
         : Object.keys(categories)[0] ?? null,
     categoryDraftText: typeof snapshot.categoryDraftText === "string" ? snapshot.categoryDraftText : "",
+    detailsTextBoxStyleDefaults: normalizeDetailsTextBoxStyleDefaults(snapshot.detailsTextBoxStyleDefaults),
     savedAt: typeof snapshot.savedAt === "string" ? snapshot.savedAt : "",
   };
 }

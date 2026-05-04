@@ -8,6 +8,7 @@ import type {
   DetailsTable,
   DetailsImage,
   DetailsTextBox,
+  DetailsTextBoxStyleDefaults,
   DraftImage,
   ExerciseReferenceItem,
   PasteFeedback,
@@ -53,6 +54,7 @@ type TreeStore = {
   openedCardId: string | null;
   cardOpenOrigin: CardOpenOrigin | null;
   draftText: string;
+  detailsTextBoxStyleDefaults: DetailsTextBoxStyleDefaults;
   draftImage: DraftImage | null;
   snapshotUpdatedAt: string;
   canUndoDeletion: boolean;
@@ -167,6 +169,25 @@ const DEFAULT_TEXT_BOX_STYLE = {
   align: "left" as const,
   linkUrl: null as string | null,
 };
+
+function normalizeDetailsTextBoxStyleDefaults(
+  value: Partial<DetailsTextBoxStyleDefaults> | null | undefined,
+): DetailsTextBoxStyleDefaults {
+  return {
+    fontSize:
+      value?.fontSize === "medium" ||
+      value?.fontSize === "large" ||
+      value?.fontSize === "xlarge" ||
+      value?.fontSize === "huge"
+        ? value.fontSize
+        : DEFAULT_TEXT_BOX_STYLE.fontSize,
+    color: typeof value?.color === "string" && value.color ? value.color : DEFAULT_TEXT_BOX_STYLE.color,
+    bold: value?.bold === true,
+    strike: value?.strike === true,
+    bulleted: value?.bulleted === true,
+    align: value?.align === "center" || value?.align === "right" ? value.align : DEFAULT_TEXT_BOX_STYLE.align,
+  };
+}
 const EXERCISE_REFERENCE_WIDTH = 192;
 const EXERCISE_REFERENCE_HEIGHT = 132;
 const EXERCISE_REFERENCE_GAP = 12;
@@ -583,6 +604,7 @@ function createEmptyState() {
     openedCardId: null,
     cardOpenOrigin: null as CardOpenOrigin | null,
     draftText: "",
+    detailsTextBoxStyleDefaults: normalizeDetailsTextBoxStyleDefaults(undefined),
     draftImage: null as DraftImage | null,
     snapshotUpdatedAt: createSnapshotTimestamp(),
     canUndoDeletion: false,
@@ -904,6 +926,7 @@ function normalizeProjectSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
     activeSectionId: null,
     selectedCategoryId,
     categoryDraftText: normalizeDraftText(snapshot.categoryDraftText ?? ""),
+    detailsTextBoxStyleDefaults: normalizeDetailsTextBoxStyleDefaults(snapshot.detailsTextBoxStyleDefaults),
     savedAt: typeof snapshot.savedAt === "string" ? snapshot.savedAt : "",
   };
 }
@@ -1859,7 +1882,8 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       y: Math.max(0, Math.round(placement.y)),
       width: Math.max(120, Math.round(placement.width)),
       height: Math.max(48, Math.round(placement.height)),
-      ...DEFAULT_TEXT_BOX_STYLE,
+      ...get().detailsTextBoxStyleDefaults,
+      linkUrl: null,
     };
 
     set({
@@ -1958,8 +1982,20 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       ...patch,
       linkUrl: patch.linkUrl === undefined ? currentTextBox.linkUrl : patch.linkUrl || null,
     };
+    const nextTextBoxStyleDefaults = normalizeDetailsTextBoxStyleDefaults({
+      ...get().detailsTextBoxStyleDefaults,
+      fontSize: nextTextBox.fontSize,
+      color: nextTextBox.color,
+      bold: nextTextBox.bold,
+      strike: nextTextBox.strike,
+      bulleted: nextTextBox.bulleted,
+      align: nextTextBox.align,
+    });
 
-    if (JSON.stringify(currentTextBox) === JSON.stringify(nextTextBox)) {
+    if (
+      JSON.stringify(currentTextBox) === JSON.stringify(nextTextBox) &&
+      JSON.stringify(get().detailsTextBoxStyleDefaults) === JSON.stringify(nextTextBoxStyleDefaults)
+    ) {
       return;
     }
 
@@ -1976,6 +2012,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
           updatedAt: snapshotUpdatedAt,
         },
       },
+      detailsTextBoxStyleDefaults: nextTextBoxStyleDefaults,
       snapshotUpdatedAt,
     });
   },
@@ -2463,6 +2500,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
           ? state.selectedCategoryId
           : Object.keys(categories)[0] ?? null,
       categoryDraftText: state.categoryDraftText,
+      detailsTextBoxStyleDefaults: state.detailsTextBoxStyleDefaults,
       savedAt: state.snapshotUpdatedAt,
     };
   },
@@ -2600,6 +2638,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       openedCardId: null,
       cardOpenOrigin: null,
       draftText: "",
+      detailsTextBoxStyleDefaults: normalized.detailsTextBoxStyleDefaults,
       draftImage,
       snapshotUpdatedAt: normalized.savedAt,
       canUndoDeletion: false,
@@ -2653,6 +2692,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         openedCardId: null,
         cardOpenOrigin: null,
         draftText: "",
+        detailsTextBoxStyleDefaults: normalized.detailsTextBoxStyleDefaults,
         draftImage: null,
         snapshotUpdatedAt: normalized.savedAt,
         canUndoDeletion: false,
@@ -2690,6 +2730,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
           ? currentState.cardOpenOrigin
           : null,
       draftText: currentState.draftText,
+      detailsTextBoxStyleDefaults: normalized.detailsTextBoxStyleDefaults,
       draftImage: currentState.draftImage,
       snapshotUpdatedAt: normalized.savedAt,
       canUndoDeletion: false,

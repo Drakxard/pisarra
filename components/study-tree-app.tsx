@@ -974,8 +974,6 @@ const DetailsTableEditor = memo(function DetailsTableEditor({
           return;
         }
 
-        event.preventDefault();
-        event.stopPropagation();
         interactionRef.current = {
           type: "move",
           pointerId: event.pointerId,
@@ -1177,8 +1175,6 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
               transform: `rotate(${image.rotation}deg)`,
             }}
             onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
               onSelect(image.id);
               interactionRef.current = {
                 type: "move",
@@ -1468,8 +1464,6 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                 return;
               }
 
-              event.preventDefault();
-              event.stopPropagation();
               interactionRef.current = {
                 type: "move",
                 textBoxId: textBox.id,
@@ -1787,8 +1781,6 @@ const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
             role={source ? "button" : undefined}
             tabIndex={source ? 0 : -1}
             onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
               onSelect(reference.id);
               interactionRef.current = {
                 type: "move",
