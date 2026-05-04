@@ -108,19 +108,13 @@ type PanState = {
   originY: number;
 };
 
-type TableResizeState =
-  | {
-      type: "column";
-      index: number;
-      startClientX: number;
-      startSize: number;
-    }
-  | {
-      type: "row";
-      index: number;
-      startClientY: number;
-      startSize: number;
-    };
+type ScrollPanState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originScrollLeft: number;
+  originScrollTop: number;
+};
 
 type DetailsTableInteraction =
   | {
@@ -339,23 +333,50 @@ function getElementRectWithinBody(element: Element, body: HTMLElement): Rect | n
   }
 
   return createRect(
-    elementRect.left - bodyRect.left + body.scrollLeft,
-    elementRect.top - bodyRect.top + body.scrollTop,
+    elementRect.left - bodyRect.left,
+    elementRect.top - bodyRect.top,
     elementRect.width,
     elementRect.height,
   );
 }
 
-function findAvailableExerciseRect(candidate: Rect, occupied: Rect[], stepY: number) {
+function findAvailableRect(candidate: Rect, occupied: Rect[], stepX: number, stepY: number) {
   let next = { ...candidate };
   let guard = 0;
 
   while (occupied.some((rect) => rectsOverlap(next, rect)) && guard < 200) {
-    next = createRect(next.left, next.bottom + stepY, next.right - next.left, next.bottom - next.top);
+    const width = next.right - next.left;
+    const height = next.bottom - next.top;
+    const shouldShiftColumn = guard > 0 && guard % 4 === 0;
+    next = createRect(
+      shouldShiftColumn ? candidate.left + stepX : candidate.left,
+      next.bottom + stepY,
+      width,
+      height,
+    );
     guard += 1;
   }
 
   return next;
+}
+
+function getRectVisibilityDelta(rect: Rect, viewport: Rect, margin = 24) {
+  let deltaX = 0;
+  let deltaY = 0;
+
+  if (rect.left < viewport.left + margin) {
+    deltaX = rect.left - (viewport.left + margin);
+  } else if (rect.right > viewport.right - margin) {
+    deltaX = rect.right - (viewport.right - margin);
+  }
+
+  if (rect.top < viewport.top + margin) {
+    deltaY = rect.top - (viewport.top + margin);
+  } else if (rect.bottom > viewport.bottom - margin) {
+    deltaY = rect.bottom - (viewport.bottom - margin);
+  }
+
+  return { deltaX, deltaY };
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -2080,6 +2101,7 @@ export function StudyTreeApp() {
   const openedCard = openedCardId ? cards[openedCardId] ?? null : null;
   const openedExerciseReferences = openedCard?.exerciseReferences ?? [];
   const isModalOpen = Boolean(openedCard);
+  const openedDetailsTable = openedCard?.detailsTable ?? null;
   const draftCommandHint = getDraftCommandHint(draftText, Boolean(draftImage));
   const stageRef = useRef<HTMLElement | null>(null);
   const hasAttemptedRemoteBootRef = useRef(false);
@@ -2096,6 +2118,7 @@ export function StudyTreeApp() {
   const exerciseFeedbackTimeoutRef = useRef<number | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const panStateRef = useRef<PanState | null>(null);
+  const modalPanStateRef = useRef<ScrollPanState | null>(null);
   const cameraRef = useRef({ x: 0, y: 0 });
   const closeHoldTimeoutRef = useRef<number | null>(null);
   const closeHoldDidDeleteRef = useRef(false);
@@ -2126,11 +2149,124 @@ export function StudyTreeApp() {
     stageSize.height,
     ...cardsList.map((card) => card.position.y + (card.size?.height ?? CARD_FALLBACK_HEIGHT) + 260),
   );
+  const modalWorldWidth = openedCard
+    ? Math.max(1120, ...[
+        960,
+        ...(openedCard.detailsImages ?? []).map((image) => image.x + image.width + 280),
+        ...(openedCard.detailsTextBoxes ?? []).map((textBox) => textBox.x + textBox.width + 280),
+        ...openedExerciseReferences.map((reference) => reference.x + reference.width + 280),
+        ...(openedDetailsTable
+          ? [openedDetailsTable.x + openedDetailsTable.columnWidths.reduce((total, width) => total + width, 0) + 280]
+          : []),
+      ])
+    : 1120;
+  const modalWorldHeight = openedCard
+    ? Math.max(
+        stageSize.height,
+        720,
+        ...(openedCard.detailsImages ?? []).map((image) => image.y + image.height + 280),
+        ...(openedCard.detailsTextBoxes ?? []).map((textBox) => textBox.y + textBox.height + 280),
+        ...openedExerciseReferences.map((reference) => reference.y + reference.height + 280),
+        ...(openedDetailsTable
+          ? [openedDetailsTable.y + openedDetailsTable.rowHeights.reduce((total, height) => total + height, 0) + 280]
+          : []),
+      )
+    : stageSize.height;
 
   const setCamera = (nextCamera: { x: number; y: number }) => {
     cameraRef.current = nextCamera;
     setCameraState(nextCamera);
   };
+
+  const getModalOverlay = () => {
+    const overlay = stageRef.current?.querySelector(".card-modal-overlay");
+    return overlay instanceof HTMLElement ? overlay : null;
+  };
+
+  const getModalBody = () => {
+    const modalBody = stageRef.current?.querySelector(".card-modal-body");
+    return modalBody instanceof HTMLElement ? modalBody : null;
+  };
+
+  const collectModalOccupiedRects = useEffectEvent((card: QuestionCard) => {
+    const bodyElement = getModalBody();
+    const occupiedRects: Rect[] = [];
+
+    if (bodyElement) {
+      for (const selector of [".question-card-image-shell.is-full", ".question-card-copy.is-full", ".details-table"]) {
+        for (const element of Array.from(bodyElement.querySelectorAll(selector))) {
+          const rect = getElementRectWithinBody(element, bodyElement);
+
+          if (rect) {
+            occupiedRects.push(rect);
+          }
+        }
+      }
+    }
+
+    const table = card.detailsTable;
+
+    if (table) {
+      const width = table.columnWidths.reduce((total, columnWidth) => total + columnWidth, 0);
+      const height = table.rowHeights.reduce((total, rowHeight) => total + rowHeight, 0);
+      occupiedRects.push(createRect(table.x, table.y, width, height));
+    }
+
+    for (const image of card.detailsImages ?? []) {
+      occupiedRects.push(createRect(image.x, image.y, image.width, image.height));
+    }
+
+    for (const textBox of card.detailsTextBoxes ?? []) {
+      occupiedRects.push(createRect(textBox.x, textBox.y, textBox.width, textBox.height));
+    }
+
+    for (const reference of card.exerciseReferences ?? []) {
+      occupiedRects.push(createRect(reference.x, reference.y, reference.width, reference.height));
+    }
+
+    return occupiedRects;
+  });
+
+  const findAvailableModalRect = useEffectEvent((card: QuestionCard, candidate: Rect) => {
+    const occupiedRects = collectModalOccupiedRects(card);
+    return findAvailableRect(candidate, occupiedRects, candidate.right - candidate.left + 24, 24);
+  });
+
+  const ensureMapRectVisible = useEffectEvent((rect: Rect) => {
+    const viewport = createRect(-cameraRef.current.x, -cameraRef.current.y, stageSize.width, stageSize.height);
+    const { deltaX, deltaY } = getRectVisibilityDelta(rect, viewport, 36);
+
+    if (deltaX === 0 && deltaY === 0) {
+      return;
+    }
+
+    setCamera({
+      x: cameraRef.current.x - deltaX,
+      y: cameraRef.current.y - deltaY,
+    });
+  });
+
+  const ensureModalRectVisible = useEffectEvent((rect: Rect) => {
+    const overlay = getModalOverlay();
+    const bodyElement = getModalBody();
+
+    if (!overlay || !bodyElement) {
+      return;
+    }
+
+    const viewport = createRect(overlay.scrollLeft, overlay.scrollTop, overlay.clientWidth, overlay.clientHeight);
+    const { deltaX, deltaY } = getRectVisibilityDelta(rect, viewport, 40);
+
+    if (deltaX === 0 && deltaY === 0) {
+      return;
+    }
+
+    overlay.scrollTo({
+      left: Math.max(0, overlay.scrollLeft + deltaX),
+      top: Math.max(0, overlay.scrollTop + deltaY),
+      behavior: "smooth",
+    });
+  });
 
   const applyRemoteProjectSnapshot = useEffectEvent((project: RemoteProject) => {
     const previousCamera = cameraRef.current;
@@ -2281,27 +2417,44 @@ export function StudyTreeApp() {
   const pasteDetailsImage = useEffectEvent(async (cardId: string, file: File) => {
     try {
       const image = await createDraftImageFromFile(file);
-      const overlay = stageRef.current?.querySelector(".card-modal-overlay");
-      const modalBody = stageRef.current?.querySelector(".card-modal-body");
+      const overlay = getModalOverlay();
+      const modalBody = getModalBody();
       const caretPoint = getCaretClientPoint();
       const bodyRect = modalBody instanceof HTMLElement ? modalBody.getBoundingClientRect() : null;
-      const overlayRect =
-        overlay instanceof HTMLElement ? overlay.getBoundingClientRect() : stageRef.current?.getBoundingClientRect();
       const maxWidth = Math.min(image.width ?? 320, 420);
       const aspectRatio = image.width && image.height ? image.height / image.width : 0.65;
       const width = Math.max(120, maxWidth);
       const height = Math.max(90, width * aspectRatio);
-      const baseX = caretPoint && bodyRect ? caretPoint.x - bodyRect.left : (overlayRect?.width ?? width) / 2 - width / 2;
-      const baseY = caretPoint && bodyRect ? caretPoint.y - bodyRect.top + 28 : (overlayRect?.height ?? height) / 2 - height / 2;
+      const card = cards[cardId];
+
+      if (!card) {
+        return;
+      }
+
+      const baseX = caretPoint && bodyRect
+        ? caretPoint.x - bodyRect.left
+        : (overlay?.scrollLeft ?? 0) + ((overlay?.clientWidth ?? width) - width) / 2;
+      const baseY = caretPoint && bodyRect
+        ? caretPoint.y - bodyRect.top + 28
+        : (overlay?.scrollTop ?? 0) + (overlay?.clientHeight ?? height) - height - 48;
+      const nextRect = findAvailableModalRect(
+        card,
+        createRect(Math.max(16, baseX), Math.max(24, baseY), width, height),
+      );
       const imageId = addDetailsImage(cardId, image, {
-        x: Math.max(0, baseX),
-        y: Math.max(0, baseY),
-        width,
-        height,
+        x: Math.round(nextRect.left),
+        y: Math.round(nextRect.top),
+        width: Math.round(nextRect.right - nextRect.left),
+        height: Math.round(nextRect.bottom - nextRect.top),
       });
 
       setSelectedDetailsImageId(imageId);
       setShowTableMenu(false);
+      if (imageId) {
+        window.requestAnimationFrame(() => {
+          ensureModalRectVisible(nextRect);
+        });
+      }
     } catch {
       setPasteFeedback("image-error");
     }
@@ -2311,17 +2464,34 @@ export function StudyTreeApp() {
     const width = 280;
     const height = 80;
     const pointerPoint = lastDetailsPointerRef.current;
-    const x = pointerPoint ? Math.max(16, pointerPoint.x - width / 2) : 24;
-    const y = pointerPoint ? Math.max(16, pointerPoint.y - height / 2) : 160;
+    const overlay = getModalOverlay();
+    const card = cards[cardId];
+
+    if (!card) {
+      return null;
+    }
+
+    const baseX = pointerPoint
+      ? Math.max(16, pointerPoint.x - width / 2)
+      : (overlay?.scrollLeft ?? 0) + 24;
+    const baseY = pointerPoint
+      ? Math.max(24, pointerPoint.y + 24)
+      : (overlay?.scrollTop ?? 0) + (overlay?.clientHeight ?? 0) - height - 48;
+    const nextRect = findAvailableModalRect(card, createRect(baseX, baseY, width, height));
     const textBoxId = addDetailsTextBox(cardId, {
-      x,
-      y,
-      width,
-      height,
+      x: Math.round(nextRect.left),
+      y: Math.round(nextRect.top),
+      width: Math.round(nextRect.right - nextRect.left),
+      height: Math.round(nextRect.bottom - nextRect.top),
     });
 
     setSelectedDetailsImageId(null);
     setSelectedDetailsTextBoxId(textBoxId);
+    if (textBoxId) {
+      window.requestAnimationFrame(() => {
+        ensureModalRectVisible(nextRect);
+      });
+    }
 
     return textBoxId;
   });
@@ -2350,8 +2520,8 @@ export function StudyTreeApp() {
     const query = buildExerciseQuery(sourceCard);
     const matches = collectExerciseMatches(query, sectionCandidates);
 
-    const modalBody = stageRef.current?.querySelector(".card-modal-body");
-    const bodyElement = modalBody instanceof HTMLElement ? modalBody : null;
+    const bodyElement = getModalBody();
+    const overlay = getModalOverlay();
     const availableWidth = Math.max(
       CARD_FALLBACK_WIDTH,
       (bodyElement?.clientWidth ?? CARD_FALLBACK_WIDTH * 2) - 48,
@@ -2361,29 +2531,9 @@ export function StudyTreeApp() {
       Math.min(2, Math.floor(availableWidth / (CARD_FALLBACK_WIDTH + EXERCISE_RESULT_GAP)) || 1),
     );
     const originX = 24;
-    const originY = (bodyElement?.scrollTop ?? 0) + (bodyElement?.clientHeight ?? 0) + 32;
+    const originY = (overlay?.scrollTop ?? 0) + (overlay?.clientHeight ?? 0) + 32;
     const timestamp = new Date().toISOString();
-    const occupiedRects: Rect[] = [];
-
-    if (bodyElement) {
-      for (const selector of [".question-card-image-shell.is-full", ".question-card-copy.is-full", ".details-table"]) {
-        for (const element of Array.from(bodyElement.querySelectorAll(selector))) {
-          const rect = getElementRectWithinBody(element, bodyElement);
-
-          if (rect) {
-            occupiedRects.push(rect);
-          }
-        }
-      }
-    }
-
-    for (const image of sourceCard.detailsImages ?? []) {
-      occupiedRects.push(createRect(image.x, image.y, image.width, image.height));
-    }
-
-    for (const textBox of sourceCard.detailsTextBoxes ?? []) {
-      occupiedRects.push(createRect(textBox.x, textBox.y, textBox.width, textBox.height));
-    }
+    const occupiedRects: Rect[] = collectModalOccupiedRects(sourceCard);
 
     const references = matches.map((match, index) => {
       const matchCard = match.card;
@@ -2397,7 +2547,7 @@ export function StudyTreeApp() {
         width,
         height,
       );
-      const nextRect = findAvailableExerciseRect(candidateRect, occupiedRects, EXERCISE_RESULT_GAP);
+      const nextRect = findAvailableRect(candidateRect, occupiedRects, width + EXERCISE_RESULT_GAP, EXERCISE_RESULT_GAP);
       occupiedRects.push(nextRect);
 
       return {
@@ -2436,14 +2586,74 @@ export function StudyTreeApp() {
 
     if (bodyElement) {
       window.requestAnimationFrame(() => {
-        bodyElement.scrollTo({
-          top: Math.max(0, originY - 96),
-          behavior: "smooth",
-        });
+        ensureModalRectVisible(
+          createRect(
+            references[0]?.x ?? originX,
+            references[0]?.y ?? originY,
+            references[0]?.width ?? EXERCISE_RESULT_CARD_WIDTH,
+            references[0]?.height ?? EXERCISE_RESULT_MIN_HEIGHT,
+          ),
+        );
       });
     }
 
     return references[0]?.id ?? null;
+  });
+
+  const ensureDetailsTablePlaced = useEffectEvent((cardId: string, cells?: string[][]) => {
+    const overlay = getModalOverlay();
+    const beforeCard = cards[cardId];
+
+    if (!beforeCard) {
+      return;
+    }
+
+    if (cells && cells.length > 0) {
+      setDetailsTableFromCells(cardId, cells);
+    } else if (!beforeCard.detailsTable) {
+      ensureDetailsTable(cardId);
+    }
+
+    const nextCard = useTreeStore.getState().cards[cardId];
+    const nextTable = nextCard?.detailsTable;
+
+    if (!nextCard || !nextTable) {
+      return;
+    }
+
+    const width = nextTable.columnWidths.reduce((total, columnWidth) => total + columnWidth, 0);
+    const height = nextTable.rowHeights.reduce((total, rowHeight) => total + rowHeight, 0);
+    const candidate = createRect(
+      nextTable.x,
+      nextTable.y,
+      width,
+      height,
+    );
+    const shouldReposition = !beforeCard.detailsTable || Boolean(cells?.length);
+    const baseRect = shouldReposition
+      ? createRect(
+          (overlay?.scrollLeft ?? 0) + 24,
+          (overlay?.scrollTop ?? 0) + Math.max(180, (overlay?.clientHeight ?? 0) - height - 48),
+          width,
+          height,
+        )
+      : candidate;
+    const occupiedRects = collectModalOccupiedRects({
+      ...nextCard,
+      detailsTable: shouldReposition ? null : nextTable,
+    });
+    const nextRect = findAvailableRect(baseRect, occupiedRects, width + 24, 24);
+
+    if (nextRect.left !== nextTable.x || nextRect.top !== nextTable.y) {
+      moveDetailsTable(cardId, {
+        x: Math.round(nextRect.left),
+        y: Math.round(nextRect.top),
+      });
+    }
+
+    window.requestAnimationFrame(() => {
+      ensureModalRectVisible(nextRect);
+    });
   });
 
   const openExerciseReference = useEffectEvent((sourceSectionId: "definitions" | "theorems", sourceCardId: string) => {
@@ -2773,10 +2983,27 @@ export function StudyTreeApp() {
 
     if (event.key === "Enter") {
       event.preventDefault();
+      const previousCardCount = Object.keys(useTreeStore.getState().cards).length;
       confirmDraft(stageSize, {
         x: -cameraRef.current.x,
         y: -cameraRef.current.y,
       });
+      const nextState = useTreeStore.getState();
+
+      if (Object.keys(nextState.cards).length > previousCardCount && nextState.selectedCardId) {
+        const nextCard = nextState.cards[nextState.selectedCardId];
+
+        if (nextCard) {
+          ensureMapRectVisible(
+            createRect(
+              nextCard.position.x,
+              nextCard.position.y,
+              nextCard.size?.width ?? CARD_FALLBACK_WIDTH,
+              nextCard.size?.height ?? CARD_FALLBACK_HEIGHT,
+            ),
+          );
+        }
+      }
       return;
     }
 
@@ -2831,7 +3058,7 @@ export function StudyTreeApp() {
 
       if (tableCells) {
         event.preventDefault();
-        setDetailsTableFromCells(openedCardId, tableCells);
+        ensureDetailsTablePlaced(openedCardId, tableCells);
         setShowTableMenu(false);
         return;
       }
@@ -3183,7 +3410,9 @@ export function StudyTreeApp() {
       setIsDetailsTableEditing(false);
       setSelectedDetailsImageId(null);
       setSelectedDetailsTextBoxId(null);
+      setSelectedExerciseReferenceId(null);
       lastDetailsPointerRef.current = null;
+      modalPanStateRef.current = null;
     }
   }, [isModalOpen]);
 
@@ -3649,9 +3878,44 @@ export function StudyTreeApp() {
         {activeCategoryId && openedCard ? (
           <div
             className="card-modal-overlay"
+            onPointerDown={(event) => {
+              const target = event.target as HTMLElement | null;
+
+              if (
+                !target ||
+                target.closest(
+                  ".details-image-object, .details-text-box, .exercise-reference-object, .details-table-object, textarea, input, button, a, [contenteditable=\"true\"]",
+                )
+              ) {
+                return;
+              }
+
+              event.preventDefault();
+              modalPanStateRef.current = {
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startY: event.clientY,
+                originScrollLeft: event.currentTarget.scrollLeft,
+                originScrollTop: event.currentTarget.scrollTop,
+              };
+              event.currentTarget.setPointerCapture?.(event.pointerId);
+            }}
             onPointerMove={(event) => {
               const modalBody = event.currentTarget.querySelector(".card-modal-body");
               const bodyRect = modalBody instanceof HTMLElement ? modalBody.getBoundingClientRect() : null;
+              const panState = modalPanStateRef.current;
+
+              if (panState && panState.pointerId === event.pointerId) {
+                event.preventDefault();
+                event.currentTarget.scrollLeft = Math.max(
+                  0,
+                  panState.originScrollLeft - (event.clientX - panState.startX),
+                );
+                event.currentTarget.scrollTop = Math.max(
+                  0,
+                  panState.originScrollTop - (event.clientY - panState.startY),
+                );
+              }
 
               if (bodyRect) {
                 lastDetailsPointerRef.current = {
@@ -3661,15 +3925,29 @@ export function StudyTreeApp() {
               }
 
               sendPresence(
-                {
-                  x: event.clientX - event.currentTarget.getBoundingClientRect().left,
-                  y: event.clientY - event.currentTarget.getBoundingClientRect().top,
-                },
+                bodyRect
+                  ? {
+                      x: event.clientX - bodyRect.left,
+                      y: event.clientY - bodyRect.top,
+                    }
+                  : null,
                 {
                   surface: "card-modal",
                   openedCardId: openedCard.id,
                 },
               );
+            }}
+            onPointerUp={(event) => {
+              if (modalPanStateRef.current?.pointerId === event.pointerId) {
+                modalPanStateRef.current = null;
+                event.currentTarget.releasePointerCapture?.(event.pointerId);
+              }
+            }}
+            onPointerCancel={(event) => {
+              if (modalPanStateRef.current?.pointerId === event.pointerId) {
+                modalPanStateRef.current = null;
+                event.currentTarget.releasePointerCapture?.(event.pointerId);
+              }
             }}
           >
             <div
@@ -3741,6 +4019,10 @@ export function StudyTreeApp() {
               {exerciseFeedback ? <div className="exercise-set-feedback">{exerciseFeedback}</div> : null}
               <div
                 className="card-modal-body"
+                style={{
+                  minWidth: `${modalWorldWidth}px`,
+                  minHeight: `${modalWorldHeight}px`,
+                }}
                 onPointerDownCapture={(event) => {
                   const rect = event.currentTarget.getBoundingClientRect();
                   lastDetailsPointerRef.current = {
@@ -3802,7 +4084,7 @@ export function StudyTreeApp() {
                     onResizeColumn={resizeDetailsTableColumn}
                     onResizeRow={resizeDetailsTableRow}
                     onPasteTable={(cells) => {
-                      setDetailsTableFromCells(openedCard.id, cells);
+                      ensureDetailsTablePlaced(openedCard.id, cells);
                       setShowTableMenu(false);
                       setIsDetailsTableSelected(true);
                       setIsDetailsTableEditing(true);
@@ -3865,6 +4147,30 @@ export function StudyTreeApp() {
                   onOpenReference={openExerciseReference}
                   onMove={moveExerciseReference}
                 />
+                {presence
+                  .filter(
+                    (item) =>
+                      item.cursor &&
+                      item.surface === "card-modal" &&
+                      item.activeCategoryId === activeCategoryId &&
+                      item.activeMapKind === activeMapKind &&
+                      item.activeSectionId === activeSectionId &&
+                      item.openedCardId === openedCard.id,
+                  )
+                  .map((item) => (
+                    <div
+                      key={item.clientId}
+                      className="collaborator-cursor is-modal"
+                      style={{
+                        left: `${item.cursor!.x}px`,
+                        top: `${item.cursor!.y}px`,
+                        color: item.color,
+                      }}
+                    >
+                      <span className="collaborator-cursor-mark" />
+                      <span className="collaborator-cursor-name">{item.name}</span>
+                    </div>
+                  ))}
               </div>
               <div className="details-table-controls">
                 {showTableMenu ? (
@@ -3897,7 +4203,7 @@ export function StudyTreeApp() {
                   aria-expanded={showTableMenu}
                   aria-label="Agregar fila o columna"
                   onClick={() => {
-                    ensureDetailsTable(openedCard.id);
+                    ensureDetailsTablePlaced(openedCard.id);
                     setIsDetailsTableSelected(true);
                     setIsDetailsTableEditing(false);
                     setSelectedDetailsImageId(null);
@@ -3909,30 +4215,6 @@ export function StudyTreeApp() {
                   +
                 </button>
               </div>
-              {presence
-                .filter(
-                  (item) =>
-                    item.cursor &&
-                    item.surface === "card-modal" &&
-                    item.activeCategoryId === activeCategoryId &&
-                    item.activeMapKind === activeMapKind &&
-                    item.activeSectionId === activeSectionId &&
-                    item.openedCardId === openedCard.id,
-                )
-                .map((item) => (
-                  <div
-                    key={item.clientId}
-                    className="collaborator-cursor is-modal"
-                    style={{
-                      left: `${item.cursor!.x}px`,
-                      top: `${item.cursor!.y}px`,
-                      color: item.color,
-                    }}
-                  >
-                    <span className="collaborator-cursor-mark" />
-                    <span className="collaborator-cursor-name">{item.name}</span>
-                  </div>
-                ))}
             </div>
           </div>
         ) : null}

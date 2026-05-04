@@ -153,7 +153,6 @@ const AUTO_LAYOUT_PADDING = 32;
 const AUTO_LAYOUT_GAP = 24;
 const AUTO_LAYOUT_CARD_WIDTH = 320;
 const AUTO_LAYOUT_CARD_HEIGHT = 220;
-const AUTO_LAYOUT_CYCLE_OFFSET = 16;
 const DEFAULT_TABLE_COLUMN_WIDTH = 160;
 const DEFAULT_TABLE_ROW_HEIGHT = 48;
 const MIN_TABLE_COLUMN_WIDTH = 72;
@@ -662,8 +661,57 @@ function createUndoSnapshot(state: TreeStore): UndoSnapshot {
   };
 }
 
-function getCardCount(cards: Record<string, QuestionCard>) {
-  return Object.keys(cards).length;
+type LayoutRect = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+function createLayoutRect(x: number, y: number, width: number, height: number): LayoutRect {
+  return {
+    left: x,
+    top: y,
+    right: x + width,
+    bottom: y + height,
+  };
+}
+
+function rectsOverlap(a: LayoutRect, b: LayoutRect) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function findAvailableRect(
+  candidate: LayoutRect,
+  occupiedRects: LayoutRect[],
+  stepX: number,
+  stepY: number,
+) {
+  let nextRect = { ...candidate };
+  let attempts = 0;
+
+  while (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect))) {
+    attempts += 1;
+
+    if (attempts % 4 === 0) {
+      nextRect = createLayoutRect(
+        Math.max(AUTO_LAYOUT_PADDING, candidate.left + stepX),
+        Math.max(AUTO_LAYOUT_PADDING, nextRect.top + stepY),
+        candidate.right - candidate.left,
+        candidate.bottom - candidate.top,
+      );
+      continue;
+    }
+
+    nextRect = createLayoutRect(
+      Math.max(AUTO_LAYOUT_PADDING, candidate.left),
+      Math.max(AUTO_LAYOUT_PADDING, nextRect.top + stepY),
+      candidate.right - candidate.left,
+      candidate.bottom - candidate.top,
+    );
+  }
+
+  return nextRect;
 }
 
 function getAutoCardPosition(
@@ -672,29 +720,31 @@ function getAutoCardPosition(
   visibleOrigin: CardPosition = { x: 0, y: 0 },
 ): CardPosition {
   const safeWidth = Math.max(viewport.width, AUTO_LAYOUT_CARD_WIDTH + AUTO_LAYOUT_PADDING * 2);
-  const safeHeight = Math.max(viewport.height, AUTO_LAYOUT_CARD_HEIGHT + AUTO_LAYOUT_PADDING * 2);
-  const columns = Math.max(
-    1,
-    Math.floor((safeWidth - AUTO_LAYOUT_PADDING * 2 + AUTO_LAYOUT_GAP) / (AUTO_LAYOUT_CARD_WIDTH + AUTO_LAYOUT_GAP)),
+  const nextWidth = AUTO_LAYOUT_CARD_WIDTH;
+  const nextHeight = AUTO_LAYOUT_CARD_HEIGHT;
+  const baseX = Math.max(
+    AUTO_LAYOUT_PADDING,
+    visibleOrigin.x + Math.max(AUTO_LAYOUT_PADDING, (safeWidth - nextWidth) / 2),
   );
-  const rows = Math.max(
-    1,
-    Math.floor(
-      (safeHeight - AUTO_LAYOUT_PADDING * 2 + AUTO_LAYOUT_GAP) /
-        (AUTO_LAYOUT_CARD_HEIGHT + AUTO_LAYOUT_GAP),
+  const baseY = Math.max(AUTO_LAYOUT_PADDING, visibleOrigin.y + AUTO_LAYOUT_PADDING);
+  const occupiedRects = Object.values(cards).map((card) =>
+    createLayoutRect(
+      card.position.x,
+      card.position.y,
+      card.size?.width ?? AUTO_LAYOUT_CARD_WIDTH,
+      card.size?.height ?? AUTO_LAYOUT_CARD_HEIGHT,
     ),
   );
-  const capacity = Math.max(1, columns * rows);
-  const index = getCardCount(cards);
-  const cycle = Math.floor(index / capacity);
-  const slot = index % capacity;
-  const column = slot % columns;
-  const row = Math.floor(slot / columns);
-  const offset = cycle * AUTO_LAYOUT_CYCLE_OFFSET;
+  const nextRect = findAvailableRect(
+    createLayoutRect(baseX, baseY, nextWidth, nextHeight),
+    occupiedRects,
+    AUTO_LAYOUT_CARD_WIDTH + AUTO_LAYOUT_GAP,
+    AUTO_LAYOUT_CARD_HEIGHT + AUTO_LAYOUT_GAP,
+  );
 
   return {
-    x: visibleOrigin.x + AUTO_LAYOUT_PADDING + column * (AUTO_LAYOUT_CARD_WIDTH + AUTO_LAYOUT_GAP) + offset,
-    y: visibleOrigin.y + AUTO_LAYOUT_PADDING + row * (AUTO_LAYOUT_CARD_HEIGHT + AUTO_LAYOUT_GAP) + offset,
+    x: Math.round(nextRect.left),
+    y: Math.round(nextRect.top),
   };
 }
 
