@@ -2,7 +2,7 @@ import type {
   DetailsImage,
   DetailsTable,
   DetailsTextBox,
-  ExerciseSet,
+  ExerciseReferenceItem,
   ProjectSnapshot,
   QuestionCard,
   StudyCategory,
@@ -146,48 +146,100 @@ function normalizeDetailsTextBoxes(value: unknown): DetailsTextBox[] {
     .filter((textBox): textBox is DetailsTextBox => Boolean(textBox));
 }
 
-function normalizeExerciseSet(value: unknown): ExerciseSet | null {
+function normalizeExerciseReferences(value: unknown): ExerciseReferenceItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((reference): ExerciseReferenceItem | null => {
+      if (!reference || typeof reference !== "object") {
+        return null;
+      }
+
+      const source = reference as Partial<ExerciseReferenceItem>;
+
+      if (
+        !source.id ||
+        (source.sourceSectionId !== "definitions" && source.sourceSectionId !== "theorems") ||
+        !source.sourceCardId
+      ) {
+        return null;
+      }
+
+      return {
+        id: source.id,
+        sourceSectionId: source.sourceSectionId,
+        sourceCardId: source.sourceCardId,
+        x: typeof source.x === "number" && Number.isFinite(source.x) ? source.x : 0,
+        y: typeof source.y === "number" && Number.isFinite(source.y) ? source.y : 0,
+        width:
+          typeof source.width === "number" && Number.isFinite(source.width) && source.width > 0
+            ? source.width
+            : 192,
+        height:
+          typeof source.height === "number" && Number.isFinite(source.height) && source.height > 0
+            ? source.height
+            : 132,
+        createdAt: typeof source.createdAt === "string" ? source.createdAt : new Date().toISOString(),
+        updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : new Date().toISOString(),
+      };
+    })
+    .filter((reference): reference is ExerciseReferenceItem => Boolean(reference));
+}
+
+function normalizeLegacyExerciseReferences(value: unknown): ExerciseReferenceItem[] {
   if (!value || typeof value !== "object") {
-    return null;
+    return [];
   }
 
-  const source = value as Partial<ExerciseSet>;
-
-  if (!source.id) {
-    return null;
-  }
-
-  const references = Array.isArray(source.references)
-    ? source.references
-        .map((reference) => {
-          if (
-            !reference ||
-            typeof reference !== "object" ||
-            !((reference as { sourceSectionId?: unknown }).sourceSectionId === "definitions" ||
-              (reference as { sourceSectionId?: unknown }).sourceSectionId === "theorems") ||
-            typeof (reference as { sourceCardId?: unknown }).sourceCardId !== "string"
-          ) {
-            return null;
-          }
-
-          return {
-            sourceSectionId: (reference as { sourceSectionId: "definitions" | "theorems" }).sourceSectionId,
-            sourceCardId: (reference as { sourceCardId: string }).sourceCardId,
-          };
-        })
-        .filter((reference): reference is ExerciseSet["references"][number] => Boolean(reference))
-    : [];
-
-  return {
-    id: source.id,
-    query: typeof source.query === "string" ? source.query : "",
-    x: typeof source.x === "number" && Number.isFinite(source.x) ? source.x : 0,
-    y: typeof source.y === "number" && Number.isFinite(source.y) ? source.y : 0,
-    width: typeof source.width === "number" && Number.isFinite(source.width) && source.width > 0 ? source.width : 360,
-    references,
-    createdAt: typeof source.createdAt === "string" ? source.createdAt : new Date().toISOString(),
-    updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : new Date().toISOString(),
+  const source = value as {
+    x?: number;
+    y?: number;
+    width?: number;
+    createdAt?: string;
+    updatedAt?: string;
+    references?: Array<{ sourceSectionId?: unknown; sourceCardId?: unknown }>;
   };
+
+  if (!Array.isArray(source.references) || source.references.length === 0) {
+    return [];
+  }
+
+  const originX = typeof source.x === "number" && Number.isFinite(source.x) ? Math.max(0, Math.round(source.x)) : 24;
+  const originY = typeof source.y === "number" && Number.isFinite(source.y) ? Math.max(0, Math.round(source.y)) : 24;
+  const width =
+    typeof source.width === "number" && Number.isFinite(source.width) && source.width > 0 ? source.width : 420;
+  const columns = Math.max(1, Math.min(2, Math.floor(width / (192 + 12)) || 1));
+  const timestamp = new Date().toISOString();
+
+  return source.references.flatMap((reference, index) => {
+    if (
+      !reference ||
+      (reference.sourceSectionId !== "definitions" && reference.sourceSectionId !== "theorems") ||
+      typeof reference.sourceCardId !== "string" ||
+      !reference.sourceCardId
+    ) {
+      return [];
+    }
+
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+
+    return [
+      {
+        id: crypto.randomUUID(),
+        sourceSectionId: reference.sourceSectionId,
+        sourceCardId: reference.sourceCardId,
+        x: originX + column * (192 + 12),
+        y: originY + row * (132 + 12),
+        width: 192,
+        height: 132,
+        createdAt: typeof source.createdAt === "string" ? source.createdAt : timestamp,
+        updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : timestamp,
+      } satisfies ExerciseReferenceItem,
+    ];
+  });
 }
 
 function withAssetPreviewUrl<T extends { path: string; previewUrl?: string }>(asset: T): T {
@@ -215,7 +267,9 @@ function normalizeCards(value: unknown) {
         detailsTable: normalizeDetailsTable(card.detailsTable),
         detailsImages: normalizeDetailsImages(card.detailsImages).map(withAssetPreviewUrl),
         detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes),
-        exerciseSet: normalizeExerciseSet(card.exerciseSet),
+        exerciseReferences: normalizeExerciseReferences(card.exerciseReferences).length
+          ? normalizeExerciseReferences(card.exerciseReferences)
+          : normalizeLegacyExerciseReferences((card as QuestionCard & { exerciseSet?: unknown }).exerciseSet),
         image: card.image
           ? withAssetPreviewUrl({
               path: card.image.path,

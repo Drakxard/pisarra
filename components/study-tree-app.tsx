@@ -38,6 +38,7 @@ import type {
   DetailsTable,
   DetailsTextBox,
   DraftImage,
+  ExerciseReferenceItem,
   PendingImageAsset,
   QuestionCard,
   SearchResult,
@@ -164,9 +165,10 @@ type DetailsTextBoxInteraction =
       originHeight: number;
     };
 
-type ExerciseSetInteraction =
+type ExerciseReferenceInteraction =
   | {
       type: "move";
+      referenceId: string;
       startX: number;
       startY: number;
       originX: number;
@@ -209,21 +211,7 @@ const EXERCISE_RESULT_CARD_WIDTH = 192;
 const EXERCISE_RESULT_MIN_HEIGHT = 132;
 const EXERCISE_RESULT_GAP = 12;
 
-type ExerciseReferenceView = {
-  sourceSectionId: "definitions" | "theorems";
-  sourceCardId: string;
-};
-
-type ExerciseSetView = {
-  id: string;
-  query: string;
-  x: number;
-  y: number;
-  width: number;
-  references: ExerciseReferenceView[];
-};
-
-type ExerciseCandidate = ExerciseReferenceView & {
+type ExerciseCandidate = Pick<ExerciseReferenceItem, "sourceSectionId" | "sourceCardId"> & {
   card: QuestionCard;
 };
 
@@ -257,7 +245,7 @@ function collectExerciseMatches(query: string, candidates: ExerciseCandidate[]) 
 
       for (const token of queryTokens) {
         if (title.includes(token)) {
-          score += 2;
+          score += title === token ? 5 : 3;
         }
       }
 
@@ -281,6 +269,20 @@ function collectExerciseMatches(query: string, candidates: ExerciseCandidate[]) 
       return left.candidate.card.text.localeCompare(right.candidate.card.text);
     })
     .map(({ candidate }) => candidate);
+}
+
+function buildExerciseQuery(card: QuestionCard) {
+  const parts = [
+    card.text,
+    card.detailsText,
+    ...(card.detailsTextBoxes ?? []).map((textBox) => textBox.text),
+    ...(card.detailsTable?.cells.flatMap((row) => row) ?? []),
+  ];
+
+  return parts
+    .map((value) => String(value ?? "").replace(/\r\n?/g, "\n").trim())
+    .filter(Boolean)
+    .join(" ");
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -1321,24 +1323,42 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
 
 const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
   cardId,
-  exerciseSet,
+  references,
+  selectedReferenceId,
   category,
+  onSelect,
   onOpenReference,
   onMove,
 }: {
   cardId: string;
-  exerciseSet: ExerciseSetView | null;
+  references: ExerciseReferenceItem[];
+  selectedReferenceId: string | null;
   category: StudyCategory | null;
+  onSelect: (referenceId: string | null) => void;
   onOpenReference: (sourceSectionId: "definitions" | "theorems", sourceCardId: string) => void;
-  onMove: (cardId: string, position: { x: number; y: number }) => void;
+  onMove: (cardId: string, referenceId: string, position: { x: number; y: number }) => void;
 }) {
-  const interactionRef = useRef<ExerciseSetInteraction>(null);
+  const interactionRef = useRef<ExerciseReferenceInteraction>(null);
+
+  const sourceMap = new Map<string, { card: QuestionCard; sourceSectionId: "definitions" | "theorems" }>();
+
+  if (category) {
+    for (const [sectionId, section] of Object.entries(category.sections ?? {})) {
+      if (sectionId !== "definitions" && sectionId !== "theorems") {
+        continue;
+      }
+
+      for (const sourceCard of Object.values(section.cards)) {
+        sourceMap.set(sourceCard.id, { card: sourceCard, sourceSectionId: sectionId as "definitions" | "theorems" });
+      }
+    }
+  }
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
       const interaction = interactionRef.current;
 
-      if (!interaction || interaction.type !== "move") {
+      if (!interaction) {
         return;
       }
 
@@ -1355,13 +1375,23 @@ const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
         return;
       }
 
-      onMove(cardId, {
+      onMove(cardId, interaction.referenceId, {
         x: interaction.originX + deltaX,
         y: interaction.originY + deltaY,
       });
     };
 
     const onPointerUp = () => {
+      const interaction = interactionRef.current;
+
+      if (interaction && !interaction.hasMoved) {
+        const source = references.find((reference) => reference.id === interaction.referenceId);
+
+        if (source) {
+          onOpenReference(source.sourceSectionId, source.sourceCardId);
+        }
+      }
+
       interactionRef.current = null;
     };
 
@@ -1374,108 +1404,64 @@ const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
     };
-  }, [cardId, onMove]);
+  }, [cardId, onMove, onOpenReference, references]);
 
-  if (!exerciseSet) {
+  if (references.length === 0) {
     return null;
   }
 
-  const sourceMap = new Map<string, { card: QuestionCard; sourceSectionId: "definitions" | "theorems" }>();
-
-  if (category) {
-    for (const [sectionId, section] of Object.entries(category.sections ?? {})) {
-      if (sectionId !== "definitions" && sectionId !== "theorems") {
-        continue;
-      }
-
-      for (const sourceCard of Object.values(section.cards)) {
-        sourceMap.set(sourceCard.id, { card: sourceCard, sourceSectionId: sectionId as "definitions" | "theorems" });
-      }
-    }
-  }
-
-  const columns = Math.max(
-    1,
-    Math.min(2, Math.floor(exerciseSet.width / (EXERCISE_RESULT_CARD_WIDTH + EXERCISE_RESULT_GAP * 2)) || 1),
-  );
-
   return (
-    <div className="exercise-set-layer" aria-label="Conjunto de ejercicios">
-      <div
-        className="exercise-set-board"
-        style={{
-          left: `${exerciseSet.x}px`,
-          top: `${exerciseSet.y}px`,
-          width: `${exerciseSet.width}px`,
-        }}
-      >
-        <button
-          type="button"
-          className="exercise-set-board-header"
-          aria-label="Mover conjunto de ejercicios"
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            interactionRef.current = {
-              type: "move",
-              startX: event.clientX,
-              startY: event.clientY,
-              originX: exerciseSet.x,
-              originY: exerciseSet.y,
-              hasMoved: false,
-            };
-          }}
-        >
-          <span>Ejercicios</span>
-          <span className="exercise-set-board-count">{exerciseSet.references.length}</span>
-        </button>
+    <div className="exercise-set-layer" aria-label="Referencias de ejercicios">
+      {references.map((reference) => {
+        const source = sourceMap.get(reference.sourceCardId);
+        const isSelected = selectedReferenceId === reference.id;
 
-        <div
-          className="exercise-set-board-grid"
-          style={{
-            gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-          }}
-        >
-          {exerciseSet.references.length === 0 ? (
-            <div className="exercise-set-empty">
-              No se encontraron resultados en Definiciones y Teoremas.
-            </div>
-          ) : (
-            exerciseSet.references.map((reference) => {
-            const source = sourceMap.get(reference.sourceCardId);
-
-            if (!source) {
-              return (
-                <div key={`${reference.sourceSectionId}:${reference.sourceCardId}`} className="exercise-set-item is-missing">
-                  <span className="exercise-set-item-title">Tarjeta eliminada</span>
-                </div>
-              );
-            }
-
-            return (
-              <button
-                key={`${reference.sourceSectionId}:${reference.sourceCardId}`}
-                type="button"
-                className="exercise-set-item"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => onOpenReference(source.sourceSectionId, source.card.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onOpenReference(source.sourceSectionId, source.card.id);
-                  }
-                }}
-              >
-                <div className="exercise-set-item-preview">
+        return (
+          <div
+            key={reference.id}
+            className={`exercise-reference-object ${isSelected ? "is-selected" : ""} ${source ? "" : "is-missing"}`}
+            style={{
+              left: `${reference.x}px`,
+              top: `${reference.y}px`,
+              width: `${reference.width}px`,
+              minHeight: `${reference.height}px`,
+            }}
+            role={source ? "button" : undefined}
+            tabIndex={source ? 0 : -1}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSelect(reference.id);
+              interactionRef.current = {
+                type: "move",
+                referenceId: reference.id,
+                startX: event.clientX,
+                startY: event.clientY,
+                originX: reference.x,
+                originY: reference.y,
+                hasMoved: false,
+              };
+            }}
+            onKeyDown={(event) => {
+              if (source && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                onOpenReference(source.sourceSectionId, source.card.id);
+              }
+            }}
+          >
+            {source ? (
+              <>
+                <div className="exercise-reference-preview">
                   <CardContent card={source.card} mode="preview" />
                 </div>
-                <span className="exercise-set-item-title">{source.card.text || "Sin título"}</span>
-              </button>
-            );
-            })
-          )}
-        </div>
-      </div>
+                <span className="exercise-reference-title">{source.card.text || "Sin título"}</span>
+              </>
+            ) : (
+              <span className="exercise-reference-title">Tarjeta eliminada</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 });
@@ -1878,8 +1864,9 @@ export function StudyTreeApp() {
     moveDetailsTextBox,
     resizeDetailsTextBox,
     deleteDetailsTextBox,
-    setExerciseSet,
-    moveExerciseSet,
+    replaceExerciseReferences,
+    moveExerciseReference,
+    deleteExerciseReference,
     selectCard,
     openCard,
     closeCard,
@@ -1918,7 +1905,7 @@ export function StudyTreeApp() {
     activeSearchResultIndex >= 0 ? searchResults[activeSearchResultIndex] ?? null : null;
   const matchedCardIds = new Set(searchResults.map((result) => result.cardId));
   const openedCard = openedCardId ? cards[openedCardId] ?? null : null;
-  const openedExerciseSet = openedCard?.exerciseSet ? openedCard.exerciseSet : null;
+  const openedExerciseReferences = openedCard?.exerciseReferences ?? [];
   const isModalOpen = Boolean(openedCard);
   const draftCommandHint = getDraftCommandHint(draftText, Boolean(draftImage));
   const stageRef = useRef<HTMLElement | null>(null);
@@ -1933,6 +1920,7 @@ export function StudyTreeApp() {
   const lastPresenceRef = useRef<PresenceState["cursor"]>(null);
   const lastDetailsPointerRef = useRef<{ x: number; y: number } | null>(null);
   const undoTimeoutRef = useRef<number | null>(null);
+  const exerciseFeedbackTimeoutRef = useRef<number | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const cameraRef = useRef({ x: 0, y: 0 });
@@ -1954,6 +1942,8 @@ export function StudyTreeApp() {
   const [showTableMenu, setShowTableMenu] = useState(false);
   const [selectedDetailsImageId, setSelectedDetailsImageId] = useState<string | null>(null);
   const [selectedDetailsTextBoxId, setSelectedDetailsTextBoxId] = useState<string | null>(null);
+  const [selectedExerciseReferenceId, setSelectedExerciseReferenceId] = useState<string | null>(null);
+  const [exerciseFeedback, setExerciseFeedback] = useState<string | null>(null);
   const [renamingCategoryId, setRenamingCategoryId] = useState<string | null>(null);
   const [categoryRenameDraft, setCategoryRenameDraft] = useState("");
   const [mapSearchText, setMapSearchText] = useState("");
@@ -2161,7 +2151,7 @@ export function StudyTreeApp() {
     return textBoxId;
   });
 
-  const createExerciseSet = useEffectEvent((cardId: string) => {
+  const createExerciseReferences = useEffectEvent((cardId: string) => {
     const activeCategory = activeCategoryId ? categories[activeCategoryId] ?? null : null;
     const sourceCard = cards[cardId];
 
@@ -2182,48 +2172,70 @@ export function StudyTreeApp() {
       })),
     ];
 
-    const query = `${sourceCard.text} ${sourceCard.detailsText ?? ""}`.trim();
+    const query = buildExerciseQuery(sourceCard);
     const matches = collectExerciseMatches(query, sectionCandidates);
-    const references = matches.map((match) => ({
-      sourceSectionId: match.sourceSectionId,
-      sourceCardId: match.sourceCardId,
-    }));
 
     const modalBody = stageRef.current?.querySelector(".card-modal-body");
     const bodyElement = modalBody instanceof HTMLElement ? modalBody : null;
-    const existingSet = sourceCard.exerciseSet ?? null;
-    const width = existingSet?.width ?? Math.min(760, Math.max(320, (bodyElement?.clientWidth ?? 760) - 48));
-    const y = existingSet ? existingSet.y : (bodyElement?.scrollTop ?? 0) + (bodyElement?.clientHeight ?? 0) + 32;
-    const exerciseSet: ExerciseSetView = {
-      id: existingSet?.id ?? makeClientId(),
-      query,
-      x: existingSet?.x ?? 24,
-      y: Math.max(24, Math.round(y)),
-      width: Math.max(320, Math.round(width)),
-      references,
-    };
+    const availableWidth = Math.max(
+      EXERCISE_RESULT_CARD_WIDTH,
+      (bodyElement?.clientWidth ?? EXERCISE_RESULT_CARD_WIDTH * 2) - 48,
+    );
+    const columns = Math.max(
+      1,
+      Math.min(2, Math.floor(availableWidth / (EXERCISE_RESULT_CARD_WIDTH + EXERCISE_RESULT_GAP)) || 1),
+    );
+    const originX = 24;
+    const originY = (bodyElement?.scrollTop ?? 0) + (bodyElement?.clientHeight ?? 0) + 32;
+    const timestamp = new Date().toISOString();
+    const references = matches.map((match, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
 
-    setExerciseSet(cardId, {
-      id: exerciseSet.id,
-      query: exerciseSet.query,
-      x: exerciseSet.x,
-      y: exerciseSet.y,
-      width: exerciseSet.width,
-      references: exerciseSet.references.map((reference) => ({ ...reference })),
-      createdAt: existingSet?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      return {
+        id: makeClientId(),
+        sourceSectionId: match.sourceSectionId,
+        sourceCardId: match.sourceCardId,
+        x: originX + column * (EXERCISE_RESULT_CARD_WIDTH + EXERCISE_RESULT_GAP),
+        y: Math.max(24, Math.round(originY + row * (EXERCISE_RESULT_MIN_HEIGHT + EXERCISE_RESULT_GAP))),
+        width: EXERCISE_RESULT_CARD_WIDTH,
+        height: EXERCISE_RESULT_MIN_HEIGHT,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      } satisfies ExerciseReferenceItem;
     });
+
+    replaceExerciseReferences(cardId, references);
+    setSelectedDetailsImageId(null);
+    setSelectedDetailsTextBoxId(null);
+    setSelectedExerciseReferenceId(references[0]?.id ?? null);
+
+    if (exerciseFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(exerciseFeedbackTimeoutRef.current);
+      exerciseFeedbackTimeoutRef.current = null;
+    }
+
+    if (references.length === 0) {
+      setExerciseFeedback("No se encontraron resultados en Definiciones y Teoremas.");
+      exerciseFeedbackTimeoutRef.current = window.setTimeout(() => {
+        setExerciseFeedback(null);
+        exerciseFeedbackTimeoutRef.current = null;
+      }, 2600);
+      return null;
+    }
+
+    setExerciseFeedback(null);
 
     if (bodyElement) {
       window.requestAnimationFrame(() => {
         bodyElement.scrollTo({
-          top: Math.max(0, exerciseSet.y - 96),
+          top: Math.max(0, originY - 96),
           behavior: "smooth",
         });
       });
     }
 
-    return exerciseSet.id;
+    return references[0]?.id ?? null;
   });
 
   const openExerciseReference = useEffectEvent((sourceSectionId: "definitions" | "theorems", sourceCardId: string) => {
@@ -2377,6 +2389,21 @@ export function StudyTreeApp() {
         appendCategoryDraftCharacter(event.key);
       }
 
+      return;
+    }
+
+    if (
+      openedCardId &&
+      selectedExerciseReferenceId &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !isEditableTarget(event.target) &&
+      (event.key === "Delete" || event.key === "Backspace")
+    ) {
+      event.preventDefault();
+      deleteExerciseReference(openedCardId, selectedExerciseReferenceId);
+      setSelectedExerciseReferenceId(null);
       return;
     }
 
@@ -2841,6 +2868,25 @@ export function StudyTreeApp() {
 
     return () => {
       observer.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (exerciseFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(exerciseFeedbackTimeoutRef.current);
+      exerciseFeedbackTimeoutRef.current = null;
+    }
+    setSelectedDetailsImageId(null);
+    setSelectedDetailsTextBoxId(null);
+    setSelectedExerciseReferenceId(null);
+    setExerciseFeedback(null);
+  }, [openedCardId]);
+
+  useEffect(() => {
+    return () => {
+      if (exerciseFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(exerciseFeedbackTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -3453,13 +3499,14 @@ export function StudyTreeApp() {
                   title="Generar ejercicios"
                   onClick={() => {
                     if (openedCard) {
-                      createExerciseSet(openedCard.id);
+                      createExerciseReferences(openedCard.id);
                     }
                   }}
                 >
                   Ejercicios
                 </button>
               ) : null}
+              {exerciseFeedback ? <div className="exercise-set-feedback">{exerciseFeedback}</div> : null}
               <div
                 className="card-modal-body"
                 onPointerDownCapture={(event) => {
@@ -3476,6 +3523,9 @@ export function StudyTreeApp() {
                   }
                   if (!target?.closest(".details-text-box")) {
                     setSelectedDetailsTextBoxId(null);
+                  }
+                  if (!target?.closest(".exercise-reference-object")) {
+                    setSelectedExerciseReferenceId(null);
                   }
                 }}
               >
@@ -3505,6 +3555,7 @@ export function StudyTreeApp() {
                   images={openedCard.detailsImages ?? []}
                   selectedImageId={selectedDetailsImageId}
                   onSelect={(imageId) => {
+                    setSelectedExerciseReferenceId(null);
                     setSelectedDetailsTextBoxId(null);
                     setSelectedDetailsImageId(imageId);
                   }}
@@ -3517,6 +3568,7 @@ export function StudyTreeApp() {
                   textBoxes={openedCard.detailsTextBoxes ?? []}
                   selectedTextBoxId={selectedDetailsTextBoxId}
                   onSelect={(textBoxId) => {
+                    setSelectedExerciseReferenceId(null);
                     setSelectedDetailsImageId(null);
                     setSelectedDetailsTextBoxId(textBoxId);
                   }}
@@ -3527,10 +3579,16 @@ export function StudyTreeApp() {
                 />
                 <ExerciseReferencesLayer
                   cardId={openedCard.id}
-                  exerciseSet={openedExerciseSet}
+                  references={openedExerciseReferences}
+                  selectedReferenceId={selectedExerciseReferenceId}
                   category={activeCategory}
+                  onSelect={(referenceId) => {
+                    setSelectedDetailsImageId(null);
+                    setSelectedDetailsTextBoxId(null);
+                    setSelectedExerciseReferenceId(referenceId);
+                  }}
                   onOpenReference={openExerciseReference}
-                  onMove={moveExerciseSet}
+                  onMove={moveExerciseReference}
                 />
               </div>
               <div className="details-table-controls">

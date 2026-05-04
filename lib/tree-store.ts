@@ -9,7 +9,7 @@ import type {
   DetailsImage,
   DetailsTextBox,
   DraftImage,
-  ExerciseSet,
+  ExerciseReferenceItem,
   PasteFeedback,
   PendingImageAsset,
   ProjectSnapshot,
@@ -111,8 +111,9 @@ type TreeStore = {
   moveDetailsTextBox: (cardId: string, textBoxId: string, position: CardPosition) => void;
   resizeDetailsTextBox: (cardId: string, textBoxId: string, size: CardSize) => void;
   deleteDetailsTextBox: (cardId: string, textBoxId: string) => void;
-  setExerciseSet: (cardId: string, exerciseSet: ExerciseSet | null) => void;
-  moveExerciseSet: (cardId: string, position: CardPosition) => void;
+  replaceExerciseReferences: (cardId: string, references: ExerciseReferenceItem[]) => void;
+  moveExerciseReference: (cardId: string, referenceId: string, position: CardPosition) => void;
+  deleteExerciseReference: (cardId: string, referenceId: string) => void;
   selectCard: (cardId: string | null, options?: CardSelectionOptions) => void;
   openCard: (cardId: string) => void;
   closeCard: () => void;
@@ -154,6 +155,9 @@ const DEFAULT_TEXT_BOX_STYLE = {
   align: "left" as const,
   linkUrl: null as string | null,
 };
+const EXERCISE_REFERENCE_WIDTH = 192;
+const EXERCISE_REFERENCE_HEIGHT = 132;
+const EXERCISE_REFERENCE_GAP = 12;
 const FIXED_SECTIONS = [
   ["definitions", "Definiciones"],
   ["theorems", "Teoremas"],
@@ -284,38 +288,98 @@ function normalizeDetailsTextBoxes(value: DetailsTextBox[] | null | undefined): 
     .filter((textBox): textBox is DetailsTextBox => Boolean(textBox));
 }
 
-function normalizeExerciseSet(value: ExerciseSet | null | undefined): ExerciseSet | null {
-  if (!value || !value.id) {
-    return null;
+function normalizeExerciseReferences(value: ExerciseReferenceItem[] | null | undefined): ExerciseReferenceItem[] {
+  if (!Array.isArray(value)) {
+    return [];
   }
 
-  return {
-    id: value.id,
-    query: normalizeDraftText(value.query ?? ""),
-    x: Number.isFinite(value.x) ? value.x : 0,
-    y: Number.isFinite(value.y) ? value.y : 0,
-    width: Number.isFinite(value.width) && value.width > 0 ? value.width : 360,
-    references: Array.isArray(value.references)
-      ? value.references
-          .map((reference) => {
-            if (
-              !reference ||
-              (reference.sourceSectionId !== "definitions" && reference.sourceSectionId !== "theorems") ||
-              !reference.sourceCardId
-            ) {
-              return null;
-            }
+  return value
+    .map((reference): ExerciseReferenceItem | null => {
+      if (
+        !reference?.id ||
+        (reference.sourceSectionId !== "definitions" && reference.sourceSectionId !== "theorems") ||
+        !reference.sourceCardId
+      ) {
+        return null;
+      }
 
-            return {
-              sourceSectionId: reference.sourceSectionId,
-              sourceCardId: reference.sourceCardId,
-            };
-          })
-          .filter((reference): reference is ExerciseSet["references"][number] => Boolean(reference))
-      : [],
-    createdAt: typeof value.createdAt === "string" ? value.createdAt : createSnapshotTimestamp(),
-    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : createSnapshotTimestamp(),
+      return {
+        id: reference.id,
+        sourceSectionId: reference.sourceSectionId,
+        sourceCardId: reference.sourceCardId,
+        x: Number.isFinite(reference.x) ? reference.x : 0,
+        y: Number.isFinite(reference.y) ? reference.y : 0,
+        width:
+          Number.isFinite(reference.width) && reference.width > 0
+            ? Math.round(reference.width)
+            : EXERCISE_REFERENCE_WIDTH,
+        height:
+          Number.isFinite(reference.height) && reference.height > 0
+            ? Math.round(reference.height)
+            : EXERCISE_REFERENCE_HEIGHT,
+        createdAt: typeof reference.createdAt === "string" ? reference.createdAt : createSnapshotTimestamp(),
+        updatedAt: typeof reference.updatedAt === "string" ? reference.updatedAt : createSnapshotTimestamp(),
+      };
+    })
+    .filter((reference): reference is ExerciseReferenceItem => Boolean(reference));
+}
+
+function normalizeLegacyExerciseSet(value: unknown): ExerciseReferenceItem[] {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const source = value as {
+    x?: number;
+    y?: number;
+    width?: number;
+    createdAt?: string;
+    updatedAt?: string;
+    references?: Array<{ sourceSectionId?: unknown; sourceCardId?: unknown }>;
   };
+
+  if (!Array.isArray(source.references) || source.references.length === 0) {
+    return [];
+  }
+
+  const originX =
+    typeof source.x === "number" && Number.isFinite(source.x) ? Math.max(0, Math.round(source.x)) : 24;
+  const originY =
+    typeof source.y === "number" && Number.isFinite(source.y) ? Math.max(0, Math.round(source.y)) : 24;
+  const width = Number.isFinite(source.width) && source.width && source.width > 0 ? source.width : 420;
+  const columns = Math.max(
+    1,
+    Math.min(2, Math.floor(width / (EXERCISE_REFERENCE_WIDTH + EXERCISE_REFERENCE_GAP)) || 1),
+  );
+  const timestamp = createSnapshotTimestamp();
+
+  return source.references.flatMap((reference, index) => {
+    if (
+      !reference ||
+      (reference.sourceSectionId !== "definitions" && reference.sourceSectionId !== "theorems") ||
+      typeof reference.sourceCardId !== "string" ||
+      !reference.sourceCardId
+    ) {
+      return [];
+    }
+
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+
+    return [
+      {
+        id: makeId(),
+        sourceSectionId: reference.sourceSectionId,
+        sourceCardId: reference.sourceCardId,
+        x: originX + column * (EXERCISE_REFERENCE_WIDTH + EXERCISE_REFERENCE_GAP),
+        y: originY + row * (EXERCISE_REFERENCE_HEIGHT + EXERCISE_REFERENCE_GAP),
+        width: EXERCISE_REFERENCE_WIDTH,
+        height: EXERCISE_REFERENCE_HEIGHT,
+        createdAt: typeof source.createdAt === "string" ? source.createdAt : timestamp,
+        updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : timestamp,
+      } satisfies ExerciseReferenceItem,
+    ];
+  });
 }
 
 function clampTableSize(value: number | undefined, min: number, fallback: number) {
@@ -356,7 +420,7 @@ function ensureFixedSections(sections: Record<string, StudySection> | undefined,
 }
 
 function cloneCard(card: QuestionCard): QuestionCard {
-  const exerciseSet = normalizeExerciseSet(card.exerciseSet);
+  const exerciseReferences = normalizeExerciseReferences(card.exerciseReferences);
 
   return {
     ...card,
@@ -370,12 +434,7 @@ function cloneCard(card: QuestionCard): QuestionCard {
       : null,
     detailsImages: normalizeDetailsImages(card.detailsImages).map((image) => ({ ...image })),
     detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes).map((textBox) => ({ ...textBox })),
-    exerciseSet: exerciseSet
-      ? {
-          ...exerciseSet,
-          references: exerciseSet.references.map((reference) => ({ ...reference })),
-        }
-      : null,
+    exerciseReferences: exerciseReferences.map((reference) => ({ ...reference })),
     position: { ...card.position },
     size: card.size ? { ...card.size } : undefined,
     image: card.image
@@ -631,6 +690,9 @@ function normalizeCards(sourceCards: Record<string, QuestionCard> = {}) {
         detailsTable: normalizeDetailsTable(card.detailsTable),
         detailsImages: normalizeDetailsImages(card.detailsImages),
         detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes),
+        exerciseReferences: normalizeExerciseReferences(card.exerciseReferences).length
+          ? normalizeExerciseReferences(card.exerciseReferences)
+          : normalizeLegacyExerciseSet((card as QuestionCard & { exerciseSet?: unknown }).exerciseSet),
         position: {
           x: Number.isFinite(card.position?.x) ? card.position.x : AUTO_LAYOUT_PADDING,
           y: Number.isFinite(card.position?.y) ? card.position.y : AUTO_LAYOUT_PADDING,
@@ -765,7 +827,7 @@ function collectSearchResults(cards: Record<string, QuestionCard>, query: string
 }
 
 function createPersistedCard(card: QuestionCard): QuestionCard {
-  const exerciseSet = normalizeExerciseSet(card.exerciseSet);
+  const exerciseReferences = normalizeExerciseReferences(card.exerciseReferences);
 
   return {
     ...card,
@@ -784,12 +846,7 @@ function createPersistedCard(card: QuestionCard): QuestionCard {
     detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes).map((textBox) => ({
       ...textBox,
     })),
-    exerciseSet: exerciseSet
-      ? {
-          ...exerciseSet,
-          references: exerciseSet.references.map((reference) => ({ ...reference })),
-        }
-      : null,
+    exerciseReferences: exerciseReferences.map((reference) => ({ ...reference })),
     position: { ...card.position },
     image: card.image
       ? {
@@ -1166,7 +1223,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       detailsTable: null,
       detailsImages: [],
       detailsTextBoxes: [],
-      exerciseSet: null,
+      exerciseReferences: [],
       image: state.draftImage
         ? {
             path: buildImageAssetPath(id, state.draftImage.mimeType),
@@ -1813,7 +1870,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       snapshotUpdatedAt,
     });
   },
-  setExerciseSet: (cardId, exerciseSet) => {
+  replaceExerciseReferences: (cardId, references) => {
     const { cards } = get();
     const card = cards[cardId];
 
@@ -1821,9 +1878,9 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       return;
     }
 
-    const nextExerciseSet = normalizeExerciseSet(exerciseSet);
+    const nextExerciseReferences = normalizeExerciseReferences(references);
 
-    if (JSON.stringify(normalizeExerciseSet(card.exerciseSet)) === JSON.stringify(nextExerciseSet)) {
+    if (JSON.stringify(normalizeExerciseReferences(card.exerciseReferences)) === JSON.stringify(nextExerciseReferences)) {
       return;
     }
 
@@ -1834,31 +1891,59 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         ...cards,
         [cardId]: {
           ...card,
-          exerciseSet: nextExerciseSet
-            ? {
-                ...nextExerciseSet,
-                references: nextExerciseSet.references.map((reference) => ({ ...reference })),
-              }
-            : null,
+          exerciseReferences: nextExerciseReferences.map((reference) => ({ ...reference })),
           updatedAt: snapshotUpdatedAt,
         },
       },
       snapshotUpdatedAt,
     });
   },
-  moveExerciseSet: (cardId, position) => {
+  moveExerciseReference: (cardId, referenceId, position) => {
     const { cards } = get();
     const card = cards[cardId];
-    const exerciseSet = normalizeExerciseSet(card?.exerciseSet);
+    const exerciseReferences = normalizeExerciseReferences(card?.exerciseReferences);
+    const referenceIndex = exerciseReferences.findIndex((reference) => reference.id === referenceId);
 
-    if (!card || !exerciseSet) {
+    if (!card || referenceIndex === -1) {
       return;
     }
 
+    const reference = exerciseReferences[referenceIndex];
     const nextX = Math.max(0, Math.round(position.x));
     const nextY = Math.max(0, Math.round(position.y));
 
-    if (exerciseSet.x === nextX && exerciseSet.y === nextY) {
+    if (reference.x === nextX && reference.y === nextY) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const nextExerciseReferences = [...exerciseReferences];
+    nextExerciseReferences[referenceIndex] = {
+      ...reference,
+      x: nextX,
+      y: nextY,
+      updatedAt: snapshotUpdatedAt,
+    };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          exerciseReferences: nextExerciseReferences,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  deleteExerciseReference: (cardId, referenceId) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const exerciseReferences = normalizeExerciseReferences(card?.exerciseReferences);
+    const nextExerciseReferences = exerciseReferences.filter((reference) => reference.id !== referenceId);
+
+    if (!card || nextExerciseReferences.length === exerciseReferences.length) {
       return;
     }
 
@@ -1869,12 +1954,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         ...cards,
         [cardId]: {
           ...card,
-          exerciseSet: {
-            ...exerciseSet,
-            x: nextX,
-            y: nextY,
-            updatedAt: snapshotUpdatedAt,
-          },
+          exerciseReferences: nextExerciseReferences,
           updatedAt: snapshotUpdatedAt,
         },
       },
