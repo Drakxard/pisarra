@@ -2188,6 +2188,27 @@ export function StudyTreeApp() {
     return modalBody instanceof HTMLElement ? modalBody : null;
   };
 
+  const resetModalViewportToContent = useEffectEvent(() => {
+    const overlay = getModalOverlay();
+    const body = getModalBody();
+
+    if (!overlay || !body) {
+      return;
+    }
+
+    const viewportWidth = overlay.clientWidth;
+    const bodyRect = body.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    const bodyOffsetLeft = bodyRect.left - overlayRect.left + overlay.scrollLeft;
+    const centeredLeft = Math.max(0, bodyOffsetLeft - Math.max(0, (viewportWidth - bodyRect.width) / 2));
+
+    overlay.scrollTo({
+      left: Math.round(centeredLeft),
+      top: 0,
+      behavior: "auto",
+    });
+  });
+
   const collectModalOccupiedRects = useEffectEvent((card: QuestionCard) => {
     const bodyElement = getModalBody();
     const occupiedRects: Rect[] = [];
@@ -3341,6 +3362,16 @@ export function StudyTreeApp() {
     setSelectedExerciseReferenceId(null);
     setExerciseFeedback(null);
   }, [openedCardId]);
+
+  useLayoutEffect(() => {
+    if (!openedCardId) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      resetModalViewportToContent();
+    });
+  }, [openedCardId, resetModalViewportToContent]);
 
   useEffect(() => {
     return () => {
