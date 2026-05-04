@@ -51,6 +51,8 @@ function normalizeDetailsTable(value: unknown): DetailsTable | null {
       const height = table.rowHeights?.[index];
       return typeof height === "number" && Number.isFinite(height) && height >= 36 ? height : 48;
     }),
+    x: typeof table.x === "number" && Number.isFinite(table.x) ? Math.max(0, Math.round(table.x)) : 24,
+    y: typeof table.y === "number" && Number.isFinite(table.y) ? Math.max(0, Math.round(table.y)) : 220,
     insertedAfterText: table.insertedAfterText !== false,
   };
 }

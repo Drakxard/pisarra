@@ -38,6 +38,7 @@ type CardOpenOrigin = {
   mapKind: "main" | "section";
   sectionId: string | null;
   selectedCardId: string | null;
+  openedCardId: string | null;
 };
 
 type TreeStore = {
@@ -95,8 +96,10 @@ type TreeStore = {
     columnIndex: number,
     value: string,
   ) => void;
+  moveDetailsTable: (cardId: string, position: CardPosition) => void;
   resizeDetailsTableColumn: (cardId: string, columnIndex: number, width: number) => void;
   resizeDetailsTableRow: (cardId: string, rowIndex: number, height: number) => void;
+  deleteDetailsTable: (cardId: string) => void;
   addDetailsImage: (
     cardId: string,
     image: DraftImage,
@@ -228,6 +231,8 @@ function normalizeDetailsTable(value: DetailsTable | null | undefined): DetailsT
     rowHeights: Array.from({ length: cells.length }, (_, index) =>
       clampTableSize(value.rowHeights?.[index], MIN_TABLE_ROW_HEIGHT, DEFAULT_TABLE_ROW_HEIGHT),
     ),
+    x: Number.isFinite(value.x) ? Math.max(0, Math.round(value.x)) : 24,
+    y: Number.isFinite(value.y) ? Math.max(0, Math.round(value.y)) : 220,
     insertedAfterText: value.insertedAfterText !== false,
   };
 }
@@ -400,6 +405,8 @@ function createDefaultDetailsTable(): DetailsTable {
     cells: [[""]],
     columnWidths: [DEFAULT_TABLE_COLUMN_WIDTH],
     rowHeights: [DEFAULT_TABLE_ROW_HEIGHT],
+    x: 24,
+    y: 220,
     insertedAfterText: true,
   };
 }
@@ -438,6 +445,8 @@ function cloneCard(card: QuestionCard): QuestionCard {
           cells: card.detailsTable.cells.map((row) => [...row]),
           columnWidths: [...card.detailsTable.columnWidths],
           rowHeights: [...card.detailsTable.rowHeights],
+          x: card.detailsTable.x,
+          y: card.detailsTable.y,
           insertedAfterText: card.detailsTable.insertedAfterText,
       }
       : null,
@@ -1416,6 +1425,8 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
                 DEFAULT_TABLE_ROW_HEIGHT,
               ),
             ),
+            x: currentTable?.x ?? 24,
+            y: currentTable?.y ?? 220,
             insertedAfterText: true,
           },
           updatedAt: snapshotUpdatedAt,
@@ -1449,6 +1460,41 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
           detailsTable: {
             ...table,
             cells,
+          },
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  moveDetailsTable: (cardId, position) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const table = normalizeDetailsTable(card?.detailsTable);
+
+    if (!card || !table) {
+      return;
+    }
+
+    const nextPosition = {
+      x: Math.max(0, Math.round(position.x)),
+      y: Math.max(0, Math.round(position.y)),
+    };
+
+    if (table.x === nextPosition.x && table.y === nextPosition.y) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTable: {
+            ...table,
+            ...nextPosition,
           },
           updatedAt: snapshotUpdatedAt,
         },
@@ -1518,6 +1564,28 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
             ...table,
             rowHeights,
           },
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  deleteDetailsTable: (cardId) => {
+    const { cards } = get();
+    const card = cards[cardId];
+
+    if (!card || !card.detailsTable) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTable: null,
           updatedAt: snapshotUpdatedAt,
         },
       },
@@ -2086,7 +2154,10 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
             state.cardOpenOrigin.selectedCardId && originSection.cards[state.cardOpenOrigin.selectedCardId]
               ? state.cardOpenOrigin.selectedCardId
               : originSection.selectedCardId,
-          openedCardId: null,
+          openedCardId:
+            state.cardOpenOrigin.openedCardId && originSection.cards[state.cardOpenOrigin.openedCardId]
+              ? state.cardOpenOrigin.openedCardId
+              : null,
           cardOpenOrigin: null,
           draftText: originSection.draftText,
           draftImage: null,
@@ -2110,7 +2181,10 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         state.cardOpenOrigin.selectedCardId && originCategory.cards[state.cardOpenOrigin.selectedCardId]
           ? state.cardOpenOrigin.selectedCardId
           : originCategory.selectedCardId,
-      openedCardId: null,
+      openedCardId:
+        state.cardOpenOrigin.openedCardId && originCategory.cards[state.cardOpenOrigin.openedCardId]
+          ? state.cardOpenOrigin.openedCardId
+          : null,
       cardOpenOrigin: null,
       draftText: originCategory.draftText,
       draftImage: null,

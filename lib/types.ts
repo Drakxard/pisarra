@@ -22,7 +22,9 @@ export type DetailsTable = {
   cells: string[][];
   columnWidths: number[];
   rowHeights: number[];
-  insertedAfterText: boolean;
+  x: number;
+  y: number;
+  insertedAfterText?: boolean;
 };
 
 export type DetailsImage = {

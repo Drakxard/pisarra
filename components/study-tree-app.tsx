@@ -122,6 +122,31 @@ type TableResizeState =
       startSize: number;
     };
 
+type DetailsTableInteraction =
+  | {
+      type: "move";
+      pointerId: number;
+      startX: number;
+      startY: number;
+      originX: number;
+      originY: number;
+      hasMoved: boolean;
+    }
+  | {
+      type: "resize-column";
+      pointerId: number;
+      index: number;
+      startClientX: number;
+      startSize: number;
+    }
+  | {
+      type: "resize-row";
+      pointerId: number;
+      index: number;
+      startClientY: number;
+      startSize: number;
+    };
+
 type DetailsImageInteraction =
   | {
       type: "move";
@@ -427,6 +452,21 @@ function isEditableTarget(target: EventTarget | null) {
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
+function blurActiveEditableElement() {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  const activeElement = document.activeElement as HTMLElement | null;
+
+  if (!activeElement || !isEditableTarget(activeElement)) {
+    return false;
+  }
+
+  activeElement.blur();
+  return true;
+}
+
 function parseClipboardTable(text: string) {
   const normalizedText = text.replace(/\r\n?/g, "\n").replace(/\n$/, "");
 
@@ -685,6 +725,11 @@ const CardDetailsEditor = memo(function CardDetailsEditor({
 const DetailsTableEditor = memo(function DetailsTableEditor({
   cardId,
   table,
+  isSelected,
+  isEditing,
+  onSelect,
+  onBeginEditing,
+  onMove,
   onUpdateCell,
   onResizeColumn,
   onResizeRow,
@@ -693,31 +738,51 @@ const DetailsTableEditor = memo(function DetailsTableEditor({
 }: {
   cardId: string;
   table: DetailsTable;
+  isSelected: boolean;
+  isEditing: boolean;
+  onSelect: () => void;
+  onBeginEditing: () => void;
+  onMove: (cardId: string, position: { x: number; y: number }) => void;
   onUpdateCell: (cardId: string, rowIndex: number, columnIndex: number, value: string) => void;
   onResizeColumn: (cardId: string, columnIndex: number, width: number) => void;
   onResizeRow: (cardId: string, rowIndex: number, height: number) => void;
   onPasteTable: (cells: string[][]) => void;
   onStartTyping: () => void;
 }) {
-  const resizeStateRef = useRef<TableResizeState | null>(null);
+  const interactionRef = useRef<DetailsTableInteraction | null>(null);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
-      const resizeState = resizeStateRef.current;
+      const interaction = interactionRef.current;
 
-      if (!resizeState) {
+      if (!interaction) {
         return;
       }
 
       event.preventDefault();
 
-      if (resizeState.type === "column") {
+      if (interaction.type === "move") {
+        if (
+          !interaction.hasMoved &&
+          Math.hypot(event.clientX - interaction.startX, event.clientY - interaction.startY) >= 4
+        ) {
+          interaction.hasMoved = true;
+        }
+
+        onMove(cardId, {
+          x: interaction.originX + event.clientX - interaction.startX,
+          y: interaction.originY + event.clientY - interaction.startY,
+        });
+        return;
+      }
+
+      if (interaction.type === "resize-column") {
         onResizeColumn(
           cardId,
-          resizeState.index,
+          interaction.index,
           Math.max(
             MIN_TABLE_COLUMN_WIDTH,
-            resizeState.startSize + event.clientX - resizeState.startClientX,
+            interaction.startSize + event.clientX - interaction.startClientX,
           ),
         );
         return;
@@ -725,16 +790,16 @@ const DetailsTableEditor = memo(function DetailsTableEditor({
 
       onResizeRow(
         cardId,
-        resizeState.index,
+        interaction.index,
         Math.max(
           MIN_TABLE_ROW_HEIGHT,
-          resizeState.startSize + event.clientY - resizeState.startClientY,
+          interaction.startSize + event.clientY - interaction.startClientY,
         ),
       );
     };
 
     const onPointerUp = () => {
-      resizeStateRef.current = null;
+      interactionRef.current = null;
     };
 
     window.addEventListener("pointermove", onPointerMove);
@@ -746,81 +811,138 @@ const DetailsTableEditor = memo(function DetailsTableEditor({
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
     };
-  }, [cardId, onResizeColumn, onResizeRow]);
+  }, [cardId, onMove, onResizeColumn, onResizeRow]);
 
   return (
     <div
-      className="details-table"
+      className={`details-table-object ${isSelected ? "is-selected" : ""} ${isEditing ? "is-editing" : ""}`}
       style={{
-        gridTemplateColumns: table.columnWidths.map((width) => `${width}px`).join(" "),
+        left: `${table.x}px`,
+        top: `${table.y}px`,
+      }}
+      onPointerDown={(event) => {
+        const target = event.target as HTMLElement | null;
+        const onResizer = Boolean(
+          target?.closest(".details-table-column-resizer") || target?.closest(".details-table-row-resizer"),
+        );
+
+        onSelect();
+
+        if (onResizer || isEditing) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        interactionRef.current = {
+          type: "move",
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          originX: table.x,
+          originY: table.y,
+          hasMoved: false,
+        };
+      }}
+      onDoubleClick={(event) => {
+        const target = event.target as HTMLElement | null;
+
+        if (target?.closest(".details-table-column-resizer") || target?.closest(".details-table-row-resizer")) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        onSelect();
+        onBeginEditing();
       }}
     >
-      {table.cells.map((row, rowIndex) =>
-        row.map((cell, columnIndex) => (
-          <div
-            key={`${rowIndex}-${columnIndex}`}
-            className="details-table-cell"
-            style={{
-              minHeight: `${table.rowHeights[rowIndex] ?? MIN_TABLE_ROW_HEIGHT}px`,
-            }}
-          >
-            <textarea
-              className="details-table-input"
-              value={cell}
-              onFocus={onStartTyping}
-              onInput={onStartTyping}
-              onChange={(event) => {
-                onUpdateCell(cardId, rowIndex, columnIndex, event.currentTarget.value);
+      <div
+        className="details-table"
+        style={{
+        gridTemplateColumns: table.columnWidths.map((width) => `${width}px`).join(" "),
+        }}
+      >
+        {table.cells.map((row, rowIndex) =>
+          row.map((cell, columnIndex) => (
+            <div
+              key={`${rowIndex}-${columnIndex}`}
+              className="details-table-cell"
+              style={{
+                minHeight: `${table.rowHeights[rowIndex] ?? MIN_TABLE_ROW_HEIGHT}px`,
               }}
-              onPaste={(event) => {
-                const tableCells = parseClipboardTable(event.clipboardData.getData("text/plain"));
-
-                if (!tableCells) {
-                  return;
-                }
-
-                event.preventDefault();
-                onPasteTable(tableCells);
-              }}
-              aria-label={`Celda ${rowIndex + 1}, ${columnIndex + 1}`}
-            />
-            {columnIndex < table.columnWidths.length - 1 ? (
-              <span
-                className="details-table-column-resizer"
-                role="separator"
-                aria-orientation="vertical"
-                onPointerDown={(event: ReactPointerEvent<HTMLSpanElement>) => {
-                  event.preventDefault();
-                  event.currentTarget.setPointerCapture?.(event.pointerId);
-                  resizeStateRef.current = {
-                    type: "column",
-                    index: columnIndex,
-                    startClientX: event.clientX,
-                    startSize: table.columnWidths[columnIndex],
-                  };
+            >
+              <textarea
+                className="details-table-input"
+                value={cell}
+                readOnly={!isEditing}
+                tabIndex={isEditing ? 0 : -1}
+                onFocus={isEditing ? onStartTyping : undefined}
+                onInput={isEditing ? onStartTyping : undefined}
+                onChange={(event) => {
+                  if (!isEditing) {
+                    return;
+                  }
+                  onUpdateCell(cardId, rowIndex, columnIndex, event.currentTarget.value);
                 }}
-              />
-            ) : null}
-            {rowIndex < table.cells.length - 1 ? (
-              <span
-                className="details-table-row-resizer"
-                role="separator"
-                aria-orientation="horizontal"
-                onPointerDown={(event: ReactPointerEvent<HTMLSpanElement>) => {
+                onPaste={(event) => {
+                  if (!isEditing) {
+                    return;
+                  }
+
+                  const tableCells = parseClipboardTable(event.clipboardData.getData("text/plain"));
+
+                  if (!tableCells) {
+                    return;
+                  }
+
                   event.preventDefault();
-                  event.currentTarget.setPointerCapture?.(event.pointerId);
-                  resizeStateRef.current = {
-                    type: "row",
-                    index: rowIndex,
-                    startClientY: event.clientY,
-                    startSize: table.rowHeights[rowIndex],
-                  };
+                  onPasteTable(tableCells);
                 }}
+                aria-label={`Celda ${rowIndex + 1}, ${columnIndex + 1}`}
               />
-            ) : null}
-          </div>
-        )),
-      )}
+              {isSelected && columnIndex < table.columnWidths.length - 1 ? (
+                <span
+                  className="details-table-column-resizer"
+                  role="separator"
+                  aria-orientation="vertical"
+                  onPointerDown={(event: ReactPointerEvent<HTMLSpanElement>) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onSelect();
+                    interactionRef.current = {
+                      type: "resize-column",
+                      pointerId: event.pointerId,
+                      index: columnIndex,
+                      startClientX: event.clientX,
+                      startSize: table.columnWidths[columnIndex],
+                    };
+                  }}
+                />
+              ) : null}
+              {isSelected && rowIndex < table.cells.length - 1 ? (
+                <span
+                  className="details-table-row-resizer"
+                  role="separator"
+                  aria-orientation="horizontal"
+                  onPointerDown={(event: ReactPointerEvent<HTMLSpanElement>) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onSelect();
+                    interactionRef.current = {
+                      type: "resize-row",
+                      pointerId: event.pointerId,
+                      index: rowIndex,
+                      startClientY: event.clientY,
+                      startSize: table.rowHeights[rowIndex],
+                    };
+                  }}
+                />
+              ) : null}
+            </div>
+          )),
+        )}
+      </div>
     </div>
   );
 });
@@ -1901,6 +2023,8 @@ export function StudyTreeApp() {
     updateDetailsTableCell,
     resizeDetailsTableColumn,
     resizeDetailsTableRow,
+    moveDetailsTable,
+    deleteDetailsTable,
     addDetailsImage,
     moveDetailsImage,
     resizeDetailsImage,
@@ -1989,6 +2113,8 @@ export function StudyTreeApp() {
   const [showSearchFeedback, setShowSearchFeedback] = useState(false);
   const [showPasteFeedback, setShowPasteFeedback] = useState(false);
   const [showTableMenu, setShowTableMenu] = useState(false);
+  const [isDetailsTableSelected, setIsDetailsTableSelected] = useState(false);
+  const [isDetailsTableEditing, setIsDetailsTableEditing] = useState(false);
   const [selectedDetailsImageId, setSelectedDetailsImageId] = useState<string | null>(null);
   const [selectedDetailsTextBoxId, setSelectedDetailsTextBoxId] = useState<string | null>(null);
   const [selectedExerciseReferenceId, setSelectedExerciseReferenceId] = useState<string | null>(null);
@@ -2340,6 +2466,7 @@ export function StudyTreeApp() {
       mapKind: originMapKind,
       sectionId: activeSectionId,
       selectedCardId,
+      openedCardId,
     });
   });
 
@@ -2369,8 +2496,6 @@ export function StudyTreeApp() {
     if (event.key === "Escape") {
       event.preventDefault();
 
-      const activeElement = document.activeElement as HTMLElement | null;
-
       if (!activeCategoryId) {
         if (renamingCategoryId) {
           setRenamingCategoryId(null);
@@ -2383,8 +2508,7 @@ export function StudyTreeApp() {
         return;
       }
 
-      if (activeElement?.isContentEditable) {
-        activeElement.blur();
+      if (blurActiveEditableElement()) {
         return;
       }
 
@@ -2481,6 +2605,22 @@ export function StudyTreeApp() {
         appendCategoryDraftCharacter(event.key);
       }
 
+      return;
+    }
+
+    if (
+      openedCardId &&
+      isDetailsTableSelected &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !isEditableTarget(event.target) &&
+      (event.key === "Delete" || event.key === "Backspace")
+    ) {
+      event.preventDefault();
+      deleteDetailsTable(openedCardId);
+      setIsDetailsTableSelected(false);
+      setIsDetailsTableEditing(false);
       return;
     }
 
@@ -2768,6 +2908,7 @@ export function StudyTreeApp() {
     }
 
     event.preventDefault();
+    blurActiveEditableElement();
     selectCard(null);
     panStateRef.current = {
       pointerId: event.pointerId,
@@ -3038,6 +3179,8 @@ export function StudyTreeApp() {
   useEffect(() => {
     if (!isModalOpen) {
       setShowTableMenu(false);
+      setIsDetailsTableSelected(false);
+      setIsDetailsTableEditing(false);
       setSelectedDetailsImageId(null);
       setSelectedDetailsTextBoxId(null);
       lastDetailsPointerRef.current = null;
@@ -3568,9 +3711,6 @@ export function StudyTreeApp() {
                   clearCloseHoldTimer();
                   closeHoldDidDeleteRef.current = false;
                 }}
-                onPointerLeave={() => {
-                  clearCloseHoldTimer();
-                }}
                 onClick={(event) => {
                   event.preventDefault();
                 }}
@@ -3619,6 +3759,20 @@ export function StudyTreeApp() {
                   if (!target?.closest(".exercise-reference-object")) {
                     setSelectedExerciseReferenceId(null);
                   }
+                  if (!target?.closest(".details-table-object")) {
+                    setIsDetailsTableSelected(false);
+                    setIsDetailsTableEditing(false);
+                  }
+
+                  if (
+                    !target?.closest(".details-image-object") &&
+                    !target?.closest(".details-text-box") &&
+                    !target?.closest(".exercise-reference-object") &&
+                    !target?.closest(".details-table-object") &&
+                    !target?.closest(".details-table-controls")
+                  ) {
+                    blurActiveEditableElement();
+                  }
                 }}
               >
                 <CardContent card={openedCard} mode="full" />
@@ -3626,19 +3780,42 @@ export function StudyTreeApp() {
                   <DetailsTableEditor
                     cardId={openedCard.id}
                     table={openedCard.detailsTable}
+                    isSelected={isDetailsTableSelected}
+                    isEditing={isDetailsTableEditing}
+                    onSelect={() => {
+                      setShowTableMenu(false);
+                      setIsDetailsTableSelected(true);
+                      setSelectedDetailsImageId(null);
+                      setSelectedDetailsTextBoxId(null);
+                      setSelectedExerciseReferenceId(null);
+                    }}
+                    onBeginEditing={() => {
+                      setShowTableMenu(false);
+                      setIsDetailsTableSelected(true);
+                      setIsDetailsTableEditing(true);
+                      setSelectedDetailsImageId(null);
+                      setSelectedDetailsTextBoxId(null);
+                      setSelectedExerciseReferenceId(null);
+                    }}
+                    onMove={moveDetailsTable}
                     onUpdateCell={updateDetailsTableCell}
                     onResizeColumn={resizeDetailsTableColumn}
                     onResizeRow={resizeDetailsTableRow}
                     onPasteTable={(cells) => {
                       setDetailsTableFromCells(openedCard.id, cells);
                       setShowTableMenu(false);
+                      setIsDetailsTableSelected(true);
+                      setIsDetailsTableEditing(true);
                       setSelectedDetailsImageId(null);
                       setSelectedDetailsTextBoxId(null);
+                      setSelectedExerciseReferenceId(null);
                     }}
                     onStartTyping={() => {
                       setShowTableMenu(false);
+                      setIsDetailsTableSelected(true);
                       setSelectedDetailsImageId(null);
                       setSelectedDetailsTextBoxId(null);
+                      setSelectedExerciseReferenceId(null);
                     }}
                   />
                 ) : null}
@@ -3647,6 +3824,8 @@ export function StudyTreeApp() {
                   images={openedCard.detailsImages ?? []}
                   selectedImageId={selectedDetailsImageId}
                   onSelect={(imageId) => {
+                    setIsDetailsTableSelected(false);
+                    setIsDetailsTableEditing(false);
                     setSelectedExerciseReferenceId(null);
                     setSelectedDetailsTextBoxId(null);
                     setSelectedDetailsImageId(imageId);
@@ -3660,6 +3839,8 @@ export function StudyTreeApp() {
                   textBoxes={openedCard.detailsTextBoxes ?? []}
                   selectedTextBoxId={selectedDetailsTextBoxId}
                   onSelect={(textBoxId) => {
+                    setIsDetailsTableSelected(false);
+                    setIsDetailsTableEditing(false);
                     setSelectedExerciseReferenceId(null);
                     setSelectedDetailsImageId(null);
                     setSelectedDetailsTextBoxId(textBoxId);
@@ -3675,6 +3856,8 @@ export function StudyTreeApp() {
                   selectedReferenceId={selectedExerciseReferenceId}
                   category={activeCategory}
                   onSelect={(referenceId) => {
+                    setIsDetailsTableSelected(false);
+                    setIsDetailsTableEditing(false);
                     setSelectedDetailsImageId(null);
                     setSelectedDetailsTextBoxId(null);
                     setSelectedExerciseReferenceId(referenceId);
@@ -3715,6 +3898,11 @@ export function StudyTreeApp() {
                   aria-label="Agregar fila o columna"
                   onClick={() => {
                     ensureDetailsTable(openedCard.id);
+                    setIsDetailsTableSelected(true);
+                    setIsDetailsTableEditing(false);
+                    setSelectedDetailsImageId(null);
+                    setSelectedDetailsTextBoxId(null);
+                    setSelectedExerciseReferenceId(null);
                     setShowTableMenu((currentValue) => !currentValue);
                   }}
                 >
