@@ -66,6 +66,7 @@ const HOME_SECTIONS = [
   { id: "definitions", name: "Definiciones", className: "is-definitions" },
   { id: "theorems", name: "Teoremas", className: "is-theorems" },
   { id: "exams", name: "Parciales", className: "is-exams" },
+  { id: "exercises", name: "Ejercicios", className: "is-exercises" },
 ] as const;
 
 type StageSize = {
@@ -163,6 +164,17 @@ type DetailsTextBoxInteraction =
       originHeight: number;
     };
 
+type ExerciseSetInteraction =
+  | {
+      type: "move";
+      startX: number;
+      startY: number;
+      originX: number;
+      originY: number;
+      hasMoved: boolean;
+    }
+  | null;
+
 const TEXT_BOX_FONT_SIZES: Record<DetailsTextBox["fontSize"], { label: string; className: string }> = {
   small: { label: "Pequeno", className: "is-small" },
   medium: { label: "Medio", className: "is-medium" },
@@ -192,6 +204,84 @@ const TEXT_BOX_COLORS = [
   "#ede9fe",
   "#fce7f3",
 ] as const;
+
+const EXERCISE_RESULT_CARD_WIDTH = 192;
+const EXERCISE_RESULT_MIN_HEIGHT = 132;
+const EXERCISE_RESULT_GAP = 12;
+
+type ExerciseReferenceView = {
+  sourceSectionId: "definitions" | "theorems";
+  sourceCardId: string;
+};
+
+type ExerciseSetView = {
+  id: string;
+  query: string;
+  x: number;
+  y: number;
+  width: number;
+  references: ExerciseReferenceView[];
+};
+
+type ExerciseCandidate = ExerciseReferenceView & {
+  card: QuestionCard;
+};
+
+function normalizeExerciseSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .trim();
+}
+
+function collectExerciseMatches(query: string, candidates: ExerciseCandidate[]) {
+  const normalizedQuery = normalizeExerciseSearchText(query);
+  const queryTokens = normalizedQuery.split(/\s+/).filter((token) => token.length >= 3);
+
+  if (!normalizedQuery && queryTokens.length === 0) {
+    return [];
+  }
+
+  return candidates
+    .map((candidate) => {
+      const { card } = candidate;
+      const title = normalizeExerciseSearchText(card.text);
+      const titleTokens = title.split(/\s+/);
+
+      let score = 0;
+
+      if (normalizedQuery && title.includes(normalizedQuery)) {
+        score += 4;
+      }
+
+      for (const token of queryTokens) {
+        if (title.includes(token)) {
+          score += 2;
+        }
+      }
+
+      for (const token of titleTokens) {
+        if (queryTokens.includes(token)) {
+          score += 1;
+        }
+      }
+
+      return {
+        candidate,
+        score,
+      };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+
+      return left.candidate.card.text.localeCompare(right.candidate.card.text);
+    })
+    .map(({ candidate }) => candidate);
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -862,7 +952,72 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
   onResize: (cardId: string, textBoxId: string, size: { width: number; height: number }) => void;
 }) {
   const interactionRef = useRef<DetailsTextBoxInteraction | null>(null);
+  const editingEditorRef = useRef<HTMLDivElement | null>(null);
+  const editingPointRef = useRef<{ x: number; y: number } | null>(null);
+  const lastFocusedEditingTextBoxIdRef = useRef<string | null>(null);
+  const [editingTextBoxId, setEditingTextBoxId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
   const [openMenu, setOpenMenu] = useState<"color" | "size" | "align" | null>(null);
+
+  useEffect(() => {
+    if (selectedTextBoxId && editingTextBoxId && selectedTextBoxId !== editingTextBoxId) {
+      setEditingTextBoxId(null);
+      editingPointRef.current = null;
+    }
+  }, [editingTextBoxId, selectedTextBoxId]);
+
+  useEffect(() => {
+    if (!editingTextBoxId) {
+      return;
+    }
+
+    const nextEditingTextBox = textBoxes.find((textBox) => textBox.id === editingTextBoxId);
+
+    if (!nextEditingTextBox) {
+      setEditingTextBoxId(null);
+      editingPointRef.current = null;
+      return;
+    }
+
+    setEditingDraft((currentDraft) => (currentDraft === nextEditingTextBox.text ? currentDraft : nextEditingTextBox.text));
+  }, [editingTextBoxId, textBoxes]);
+
+  useLayoutEffect(() => {
+    if (!editingTextBoxId) {
+      lastFocusedEditingTextBoxIdRef.current = null;
+      return;
+    }
+
+    const editor = editingEditorRef.current;
+
+    if (!editor) {
+      return;
+    }
+
+    const isNewEditingTarget = lastFocusedEditingTextBoxIdRef.current !== editingTextBoxId;
+
+    if (!isNewEditingTarget && editor.innerText !== editingDraft && document.activeElement !== editor) {
+      editor.innerText = editingDraft;
+    }
+
+    if (isNewEditingTarget) {
+      if (editor.innerText !== editingDraft) {
+        editor.innerText = editingDraft;
+      }
+
+      editor.focus({ preventScroll: true });
+
+      const point = editingPointRef.current;
+
+      if (point && !placeCursorAtPoint(editor, point.x, point.y)) {
+        placeCursorAtEnd(editor);
+      } else if (!point) {
+        placeCursorAtEnd(editor);
+      }
+
+      lastFocusedEditingTextBoxIdRef.current = editingTextBoxId;
+    }
+  }, [editingDraft, editingTextBoxId]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -941,6 +1096,10 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
               onSelect(textBox.id);
 
               if (target?.closest(".details-text-box-editor")) {
+                return;
+              }
+
+              if (event.detail >= 2 && target?.closest(".details-text-box-display")) {
                 return;
               }
 
@@ -1076,28 +1235,64 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                 ) : null}
               </div>
             ) : null}
-            <div
-              className={`details-text-box-editor ${TEXT_BOX_FONT_SIZES[textBox.fontSize].className} ${
-                textBox.bulleted ? "is-bulleted" : ""
-              }`}
-              contentEditable
-              suppressContentEditableWarning
-              role="textbox"
-              aria-multiline="true"
-              data-placeholder="Agregar texto"
-              style={{
-                fontWeight: textBox.bold ? 700 : 400,
-                textDecoration: `${textBox.strike ? "line-through" : ""} ${textBox.linkUrl ? "underline" : ""}`.trim() || undefined,
-              }}
-              onInput={(event) => {
-                onUpdate(cardId, textBox.id, event.currentTarget.innerText ?? "");
-              }}
-              onBlur={(event) => {
-                onUpdate(cardId, textBox.id, event.currentTarget.innerText ?? "");
-              }}
-            >
-              {textBox.text}
-            </div>
+            {editingTextBoxId === textBox.id ? (
+              <div
+                ref={editingEditorRef}
+                className={`details-text-box-editor ${TEXT_BOX_FONT_SIZES[textBox.fontSize].className} ${
+                  textBox.bulleted ? "is-bulleted" : ""
+                }`}
+                contentEditable
+                suppressContentEditableWarning
+                role="textbox"
+                aria-multiline="true"
+                data-placeholder="Agregar texto"
+                style={{
+                  fontWeight: textBox.bold ? 700 : 400,
+                  textDecoration: `${textBox.strike ? "line-through" : ""} ${textBox.linkUrl ? "underline" : ""}`.trim() || undefined,
+                }}
+                onInput={(event) => {
+                  const nextText = event.currentTarget.innerText ?? "";
+                  setEditingDraft(nextText);
+                  onUpdate(cardId, textBox.id, nextText);
+                }}
+                onBlur={(event) => {
+                  const nextTarget = event.relatedTarget as Node | null;
+                  const wrapper = event.currentTarget.closest(".details-text-box");
+
+                  if (nextTarget && wrapper instanceof HTMLElement && wrapper.contains(nextTarget)) {
+                    return;
+                  }
+
+                  setEditingTextBoxId((currentId) => (currentId === textBox.id ? null : currentId));
+                  editingPointRef.current = null;
+                  onUpdate(cardId, textBox.id, event.currentTarget.innerText ?? "");
+                }}
+              />
+            ) : (
+              <div
+                className={`details-text-box-display ${TEXT_BOX_FONT_SIZES[textBox.fontSize].className} ${
+                  textBox.bulleted ? "is-bulleted" : ""
+                }`}
+                role="textbox"
+                aria-multiline="true"
+                data-placeholder="Agregar texto"
+                style={{
+                  fontWeight: textBox.bold ? 700 : 400,
+                  textDecoration: `${textBox.strike ? "line-through" : ""} ${textBox.linkUrl ? "underline" : ""}`.trim() || undefined,
+                }}
+                onDoubleClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  interactionRef.current = null;
+                  editingPointRef.current = { x: event.clientX, y: event.clientY };
+                  onSelect(textBox.id);
+                  setEditingTextBoxId(textBox.id);
+                  setEditingDraft(textBox.text);
+                }}
+              >
+                {textBox.text}
+              </div>
+            )}
             {isSelected ? (
               <button
                 type="button"
@@ -1120,6 +1315,167 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
           </div>
         );
       })}
+    </div>
+  );
+});
+
+const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
+  cardId,
+  exerciseSet,
+  category,
+  onOpenReference,
+  onMove,
+}: {
+  cardId: string;
+  exerciseSet: ExerciseSetView | null;
+  category: StudyCategory | null;
+  onOpenReference: (sourceSectionId: "definitions" | "theorems", sourceCardId: string) => void;
+  onMove: (cardId: string, position: { x: number; y: number }) => void;
+}) {
+  const interactionRef = useRef<ExerciseSetInteraction>(null);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const interaction = interactionRef.current;
+
+      if (!interaction || interaction.type !== "move") {
+        return;
+      }
+
+      event.preventDefault();
+
+      const deltaX = event.clientX - interaction.startX;
+      const deltaY = event.clientY - interaction.startY;
+
+      if (!interaction.hasMoved && Math.hypot(deltaX, deltaY) >= 4) {
+        interaction.hasMoved = true;
+      }
+
+      if (!interaction.hasMoved) {
+        return;
+      }
+
+      onMove(cardId, {
+        x: interaction.originX + deltaX,
+        y: interaction.originY + deltaY,
+      });
+    };
+
+    const onPointerUp = () => {
+      interactionRef.current = null;
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, [cardId, onMove]);
+
+  if (!exerciseSet) {
+    return null;
+  }
+
+  const sourceMap = new Map<string, { card: QuestionCard; sourceSectionId: "definitions" | "theorems" }>();
+
+  if (category) {
+    for (const [sectionId, section] of Object.entries(category.sections ?? {})) {
+      if (sectionId !== "definitions" && sectionId !== "theorems") {
+        continue;
+      }
+
+      for (const sourceCard of Object.values(section.cards)) {
+        sourceMap.set(sourceCard.id, { card: sourceCard, sourceSectionId: sectionId as "definitions" | "theorems" });
+      }
+    }
+  }
+
+  const columns = Math.max(
+    1,
+    Math.min(2, Math.floor(exerciseSet.width / (EXERCISE_RESULT_CARD_WIDTH + EXERCISE_RESULT_GAP * 2)) || 1),
+  );
+
+  return (
+    <div className="exercise-set-layer" aria-label="Conjunto de ejercicios">
+      <div
+        className="exercise-set-board"
+        style={{
+          left: `${exerciseSet.x}px`,
+          top: `${exerciseSet.y}px`,
+          width: `${exerciseSet.width}px`,
+        }}
+      >
+        <button
+          type="button"
+          className="exercise-set-board-header"
+          aria-label="Mover conjunto de ejercicios"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            interactionRef.current = {
+              type: "move",
+              startX: event.clientX,
+              startY: event.clientY,
+              originX: exerciseSet.x,
+              originY: exerciseSet.y,
+              hasMoved: false,
+            };
+          }}
+        >
+          <span>Ejercicios</span>
+          <span className="exercise-set-board-count">{exerciseSet.references.length}</span>
+        </button>
+
+        <div
+          className="exercise-set-board-grid"
+          style={{
+            gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          }}
+        >
+          {exerciseSet.references.length === 0 ? (
+            <div className="exercise-set-empty">
+              No se encontraron resultados en Definiciones y Teoremas.
+            </div>
+          ) : (
+            exerciseSet.references.map((reference) => {
+            const source = sourceMap.get(reference.sourceCardId);
+
+            if (!source) {
+              return (
+                <div key={`${reference.sourceSectionId}:${reference.sourceCardId}`} className="exercise-set-item is-missing">
+                  <span className="exercise-set-item-title">Tarjeta eliminada</span>
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={`${reference.sourceSectionId}:${reference.sourceCardId}`}
+                type="button"
+                className="exercise-set-item"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => onOpenReference(source.sourceSectionId, source.card.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpenReference(source.sourceSectionId, source.card.id);
+                  }
+                }}
+              >
+                <div className="exercise-set-item-preview">
+                  <CardContent card={source.card} mode="preview" />
+                </div>
+                <span className="exercise-set-item-title">{source.card.text || "Sin título"}</span>
+              </button>
+            );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 });
@@ -1522,6 +1878,8 @@ export function StudyTreeApp() {
     moveDetailsTextBox,
     resizeDetailsTextBox,
     deleteDetailsTextBox,
+    setExerciseSet,
+    moveExerciseSet,
     selectCard,
     openCard,
     closeCard,
@@ -1560,6 +1918,7 @@ export function StudyTreeApp() {
     activeSearchResultIndex >= 0 ? searchResults[activeSearchResultIndex] ?? null : null;
   const matchedCardIds = new Set(searchResults.map((result) => result.cardId));
   const openedCard = openedCardId ? cards[openedCardId] ?? null : null;
+  const openedExerciseSet = openedCard?.exerciseSet ? openedCard.exerciseSet : null;
   const isModalOpen = Boolean(openedCard);
   const draftCommandHint = getDraftCommandHint(draftText, Boolean(draftImage));
   const stageRef = useRef<HTMLElement | null>(null);
@@ -1572,6 +1931,7 @@ export function StudyTreeApp() {
   const needsSaveAfterCurrentRef = useRef(false);
   const lastPresenceSentAtRef = useRef(0);
   const lastPresenceRef = useRef<PresenceState["cursor"]>(null);
+  const lastDetailsPointerRef = useRef<{ x: number; y: number } | null>(null);
   const undoTimeoutRef = useRef<number | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const panStateRef = useRef<PanState | null>(null);
@@ -1594,7 +1954,6 @@ export function StudyTreeApp() {
   const [showTableMenu, setShowTableMenu] = useState(false);
   const [selectedDetailsImageId, setSelectedDetailsImageId] = useState<string | null>(null);
   const [selectedDetailsTextBoxId, setSelectedDetailsTextBoxId] = useState<string | null>(null);
-  const [pendingTextBoxFocusId, setPendingTextBoxFocusId] = useState<string | null>(null);
   const [renamingCategoryId, setRenamingCategoryId] = useState<string | null>(null);
   const [categoryRenameDraft, setCategoryRenameDraft] = useState("");
   const [mapSearchText, setMapSearchText] = useState("");
@@ -1784,13 +2143,11 @@ export function StudyTreeApp() {
   });
 
   const createDetailsTextBox = useEffectEvent((cardId: string) => {
-    const overlay = stageRef.current?.querySelector(".card-modal-overlay");
     const width = 280;
     const height = 80;
-    const overlayElement = overlay instanceof HTMLElement ? overlay : null;
-    const overlayRect = overlayElement?.getBoundingClientRect();
-    const x = overlayRect ? overlayRect.width / 2 - width / 2 : 24;
-    const y = overlayRect ? overlayElement!.scrollTop + overlayRect.height / 2 - height / 2 : 220;
+    const pointerPoint = lastDetailsPointerRef.current;
+    const x = pointerPoint ? Math.max(16, pointerPoint.x - width / 2) : 24;
+    const y = pointerPoint ? Math.max(16, pointerPoint.y - height / 2) : 160;
     const textBoxId = addDetailsTextBox(cardId, {
       x,
       y,
@@ -1800,9 +2157,86 @@ export function StudyTreeApp() {
 
     setSelectedDetailsImageId(null);
     setSelectedDetailsTextBoxId(textBoxId);
-    setPendingTextBoxFocusId(textBoxId);
 
     return textBoxId;
+  });
+
+  const createExerciseSet = useEffectEvent((cardId: string) => {
+    const activeCategory = activeCategoryId ? categories[activeCategoryId] ?? null : null;
+    const sourceCard = cards[cardId];
+
+    if (!activeCategory || !sourceCard) {
+      return null;
+    }
+
+    const sectionCandidates: ExerciseCandidate[] = [
+      ...Object.values(activeCategory.sections?.definitions?.cards ?? {}).map((card) => ({
+        card,
+        sourceSectionId: "definitions" as const,
+        sourceCardId: card.id,
+      })),
+      ...Object.values(activeCategory.sections?.theorems?.cards ?? {}).map((card) => ({
+        card,
+        sourceSectionId: "theorems" as const,
+        sourceCardId: card.id,
+      })),
+    ];
+
+    const query = `${sourceCard.text} ${sourceCard.detailsText ?? ""}`.trim();
+    const matches = collectExerciseMatches(query, sectionCandidates);
+    const references = matches.map((match) => ({
+      sourceSectionId: match.sourceSectionId,
+      sourceCardId: match.sourceCardId,
+    }));
+
+    const modalBody = stageRef.current?.querySelector(".card-modal-body");
+    const bodyElement = modalBody instanceof HTMLElement ? modalBody : null;
+    const existingSet = sourceCard.exerciseSet ?? null;
+    const width = existingSet?.width ?? Math.min(760, Math.max(320, (bodyElement?.clientWidth ?? 760) - 48));
+    const y = existingSet ? existingSet.y : (bodyElement?.scrollTop ?? 0) + (bodyElement?.clientHeight ?? 0) + 32;
+    const exerciseSet: ExerciseSetView = {
+      id: existingSet?.id ?? makeClientId(),
+      query,
+      x: existingSet?.x ?? 24,
+      y: Math.max(24, Math.round(y)),
+      width: Math.max(320, Math.round(width)),
+      references,
+    };
+
+    setExerciseSet(cardId, {
+      id: exerciseSet.id,
+      query: exerciseSet.query,
+      x: exerciseSet.x,
+      y: exerciseSet.y,
+      width: exerciseSet.width,
+      references: exerciseSet.references.map((reference) => ({ ...reference })),
+      createdAt: existingSet?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (bodyElement) {
+      window.requestAnimationFrame(() => {
+        bodyElement.scrollTo({
+          top: Math.max(0, exerciseSet.y - 96),
+          behavior: "smooth",
+        });
+      });
+    }
+
+    return exerciseSet.id;
+  });
+
+  const openExerciseReference = useEffectEvent((sourceSectionId: "definitions" | "theorems", sourceCardId: string) => {
+    if (!activeCategoryId) {
+      return;
+    }
+
+    if (activeMapKind !== "section" || activeSectionId !== sourceSectionId) {
+      openCategorySection(activeCategoryId, sourceSectionId);
+    }
+
+    selectCard(sourceCardId);
+    openCard(sourceCardId);
   });
 
   const clearUndoTimer = useEffectEvent(() => {
@@ -2468,25 +2902,9 @@ export function StudyTreeApp() {
       setShowTableMenu(false);
       setSelectedDetailsImageId(null);
       setSelectedDetailsTextBoxId(null);
-      setPendingTextBoxFocusId(null);
+      lastDetailsPointerRef.current = null;
     }
   }, [isModalOpen]);
-
-  useEffect(() => {
-    if (!pendingTextBoxFocusId) {
-      return;
-    }
-
-    const editor = stageRef.current?.querySelector(
-      `.details-text-box[data-text-box-id="${pendingTextBoxFocusId}"] .details-text-box-editor`,
-    );
-
-    if (editor instanceof HTMLElement) {
-      editor.focus({ preventScroll: true });
-      placeCursorAtEnd(editor);
-      setPendingTextBoxFocusId(null);
-    }
-  }, [cards, pendingTextBoxFocusId]);
 
   useEffect(() => {
     setMapSearchText("");
@@ -2951,12 +3369,20 @@ export function StudyTreeApp() {
           <div
             className="card-modal-overlay"
             onPointerMove={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
+              const modalBody = event.currentTarget.querySelector(".card-modal-body");
+              const bodyRect = modalBody instanceof HTMLElement ? modalBody.getBoundingClientRect() : null;
+
+              if (bodyRect) {
+                lastDetailsPointerRef.current = {
+                  x: event.clientX - bodyRect.left,
+                  y: event.clientY - bodyRect.top,
+                };
+              }
 
               sendPresence(
                 {
-                  x: event.clientX - rect.left,
-                  y: event.clientY - rect.top,
+                  x: event.clientX - event.currentTarget.getBoundingClientRect().left,
+                  y: event.clientY - event.currentTarget.getBoundingClientRect().top,
                 },
                 {
                   surface: "card-modal",
@@ -3019,9 +3445,30 @@ export function StudyTreeApp() {
               >
                 X
               </button>
+              {activeMapKind === "section" && activeSectionId === "exercises" ? (
+                <button
+                  type="button"
+                  className="exercise-set-fab"
+                  aria-label="Generar ejercicios"
+                  title="Generar ejercicios"
+                  onClick={() => {
+                    if (openedCard) {
+                      createExerciseSet(openedCard.id);
+                    }
+                  }}
+                >
+                  Ejercicios
+                </button>
+              ) : null}
               <div
                 className="card-modal-body"
                 onPointerDownCapture={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  lastDetailsPointerRef.current = {
+                    x: event.clientX - rect.left,
+                    y: event.clientY - rect.top,
+                  };
+
                   const target = event.target as HTMLElement | null;
 
                   if (!target?.closest(".details-image-object")) {
@@ -3077,6 +3524,13 @@ export function StudyTreeApp() {
                   onStyle={updateDetailsTextBoxStyle}
                   onMove={moveDetailsTextBox}
                   onResize={resizeDetailsTextBox}
+                />
+                <ExerciseReferencesLayer
+                  cardId={openedCard.id}
+                  exerciseSet={openedExerciseSet}
+                  category={activeCategory}
+                  onOpenReference={openExerciseReference}
+                  onMove={moveExerciseSet}
                 />
               </div>
               <div className="details-table-controls">

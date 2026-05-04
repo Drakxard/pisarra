@@ -2,6 +2,7 @@ import type {
   DetailsImage,
   DetailsTable,
   DetailsTextBox,
+  ExerciseSet,
   ProjectSnapshot,
   QuestionCard,
   StudyCategory,
@@ -12,6 +13,7 @@ const FIXED_SECTIONS = [
   ["definitions", "Definiciones"],
   ["theorems", "Teoremas"],
   ["exams", "Parciales"],
+  ["exercises", "Ejercicios"],
 ] as const;
 
 type RawProjectSnapshot = Partial<Omit<ProjectSnapshot, "version">> & {
@@ -144,6 +146,50 @@ function normalizeDetailsTextBoxes(value: unknown): DetailsTextBox[] {
     .filter((textBox): textBox is DetailsTextBox => Boolean(textBox));
 }
 
+function normalizeExerciseSet(value: unknown): ExerciseSet | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const source = value as Partial<ExerciseSet>;
+
+  if (!source.id) {
+    return null;
+  }
+
+  const references = Array.isArray(source.references)
+    ? source.references
+        .map((reference) => {
+          if (
+            !reference ||
+            typeof reference !== "object" ||
+            !((reference as { sourceSectionId?: unknown }).sourceSectionId === "definitions" ||
+              (reference as { sourceSectionId?: unknown }).sourceSectionId === "theorems") ||
+            typeof (reference as { sourceCardId?: unknown }).sourceCardId !== "string"
+          ) {
+            return null;
+          }
+
+          return {
+            sourceSectionId: (reference as { sourceSectionId: "definitions" | "theorems" }).sourceSectionId,
+            sourceCardId: (reference as { sourceCardId: string }).sourceCardId,
+          };
+        })
+        .filter((reference): reference is ExerciseSet["references"][number] => Boolean(reference))
+    : [];
+
+  return {
+    id: source.id,
+    query: typeof source.query === "string" ? source.query : "",
+    x: typeof source.x === "number" && Number.isFinite(source.x) ? source.x : 0,
+    y: typeof source.y === "number" && Number.isFinite(source.y) ? source.y : 0,
+    width: typeof source.width === "number" && Number.isFinite(source.width) && source.width > 0 ? source.width : 360,
+    references,
+    createdAt: typeof source.createdAt === "string" ? source.createdAt : new Date().toISOString(),
+    updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : new Date().toISOString(),
+  };
+}
+
 function withAssetPreviewUrl<T extends { path: string; previewUrl?: string }>(asset: T): T {
   if (asset.previewUrl || !asset.path) {
     return asset;
@@ -169,6 +215,7 @@ function normalizeCards(value: unknown) {
         detailsTable: normalizeDetailsTable(card.detailsTable),
         detailsImages: normalizeDetailsImages(card.detailsImages).map(withAssetPreviewUrl),
         detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes),
+        exerciseSet: normalizeExerciseSet(card.exerciseSet),
         image: card.image
           ? withAssetPreviewUrl({
               path: card.image.path,

@@ -55,6 +55,22 @@ export type DetailsTextBox = {
   linkUrl?: string | null;
 };
 
+export type ExerciseReference = {
+  sourceSectionId: "definitions" | "theorems";
+  sourceCardId: string;
+};
+
+export type ExerciseSet = {
+  id: string;
+  query: string;
+  x: number;
+  y: number;
+  width: number;
+  references: ExerciseReference[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type QuestionCard = {
   id: string;
   text: string;
@@ -62,6 +78,7 @@ export type QuestionCard = {
   detailsTable?: DetailsTable | null;
   detailsImages?: DetailsImage[];
   detailsTextBoxes?: DetailsTextBox[];
+  exerciseSet?: ExerciseSet | null;
   image: QuestionCardImage | null;
   position: CardPosition;
   size?: CardSize;

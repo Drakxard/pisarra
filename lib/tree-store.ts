@@ -9,6 +9,7 @@ import type {
   DetailsImage,
   DetailsTextBox,
   DraftImage,
+  ExerciseSet,
   PasteFeedback,
   PendingImageAsset,
   ProjectSnapshot,
@@ -110,6 +111,8 @@ type TreeStore = {
   moveDetailsTextBox: (cardId: string, textBoxId: string, position: CardPosition) => void;
   resizeDetailsTextBox: (cardId: string, textBoxId: string, size: CardSize) => void;
   deleteDetailsTextBox: (cardId: string, textBoxId: string) => void;
+  setExerciseSet: (cardId: string, exerciseSet: ExerciseSet | null) => void;
+  moveExerciseSet: (cardId: string, position: CardPosition) => void;
   selectCard: (cardId: string | null, options?: CardSelectionOptions) => void;
   openCard: (cardId: string) => void;
   closeCard: () => void;
@@ -155,6 +158,7 @@ const FIXED_SECTIONS = [
   ["definitions", "Definiciones"],
   ["theorems", "Teoremas"],
   ["exams", "Parciales"],
+  ["exercises", "Ejercicios"],
 ] as const;
 
 const makeId = () => crypto.randomUUID();
@@ -280,6 +284,40 @@ function normalizeDetailsTextBoxes(value: DetailsTextBox[] | null | undefined): 
     .filter((textBox): textBox is DetailsTextBox => Boolean(textBox));
 }
 
+function normalizeExerciseSet(value: ExerciseSet | null | undefined): ExerciseSet | null {
+  if (!value || !value.id) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    query: normalizeDraftText(value.query ?? ""),
+    x: Number.isFinite(value.x) ? value.x : 0,
+    y: Number.isFinite(value.y) ? value.y : 0,
+    width: Number.isFinite(value.width) && value.width > 0 ? value.width : 360,
+    references: Array.isArray(value.references)
+      ? value.references
+          .map((reference) => {
+            if (
+              !reference ||
+              (reference.sourceSectionId !== "definitions" && reference.sourceSectionId !== "theorems") ||
+              !reference.sourceCardId
+            ) {
+              return null;
+            }
+
+            return {
+              sourceSectionId: reference.sourceSectionId,
+              sourceCardId: reference.sourceCardId,
+            };
+          })
+          .filter((reference): reference is ExerciseSet["references"][number] => Boolean(reference))
+      : [],
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : createSnapshotTimestamp(),
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : createSnapshotTimestamp(),
+  };
+}
+
 function clampTableSize(value: number | undefined, min: number, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.round(value)) : fallback;
 }
@@ -318,6 +356,8 @@ function ensureFixedSections(sections: Record<string, StudySection> | undefined,
 }
 
 function cloneCard(card: QuestionCard): QuestionCard {
+  const exerciseSet = normalizeExerciseSet(card.exerciseSet);
+
   return {
     ...card,
     detailsTable: card.detailsTable
@@ -326,10 +366,16 @@ function cloneCard(card: QuestionCard): QuestionCard {
           columnWidths: [...card.detailsTable.columnWidths],
           rowHeights: [...card.detailsTable.rowHeights],
           insertedAfterText: card.detailsTable.insertedAfterText,
-        }
+      }
       : null,
     detailsImages: normalizeDetailsImages(card.detailsImages).map((image) => ({ ...image })),
     detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes).map((textBox) => ({ ...textBox })),
+    exerciseSet: exerciseSet
+      ? {
+          ...exerciseSet,
+          references: exerciseSet.references.map((reference) => ({ ...reference })),
+        }
+      : null,
     position: { ...card.position },
     size: card.size ? { ...card.size } : undefined,
     image: card.image
@@ -719,6 +765,8 @@ function collectSearchResults(cards: Record<string, QuestionCard>, query: string
 }
 
 function createPersistedCard(card: QuestionCard): QuestionCard {
+  const exerciseSet = normalizeExerciseSet(card.exerciseSet);
+
   return {
     ...card,
     detailsTable: normalizeDetailsTable(card.detailsTable),
@@ -736,6 +784,12 @@ function createPersistedCard(card: QuestionCard): QuestionCard {
     detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes).map((textBox) => ({
       ...textBox,
     })),
+    exerciseSet: exerciseSet
+      ? {
+          ...exerciseSet,
+          references: exerciseSet.references.map((reference) => ({ ...reference })),
+        }
+      : null,
     position: { ...card.position },
     image: card.image
       ? {
@@ -1112,6 +1166,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       detailsTable: null,
       detailsImages: [],
       detailsTextBoxes: [],
+      exerciseSet: null,
       image: state.draftImage
         ? {
             path: buildImageAssetPath(id, state.draftImage.mimeType),
@@ -1752,6 +1807,74 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
         [cardId]: {
           ...card,
           detailsTextBoxes: nextTextBoxes,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  setExerciseSet: (cardId, exerciseSet) => {
+    const { cards } = get();
+    const card = cards[cardId];
+
+    if (!card) {
+      return;
+    }
+
+    const nextExerciseSet = normalizeExerciseSet(exerciseSet);
+
+    if (JSON.stringify(normalizeExerciseSet(card.exerciseSet)) === JSON.stringify(nextExerciseSet)) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          exerciseSet: nextExerciseSet
+            ? {
+                ...nextExerciseSet,
+                references: nextExerciseSet.references.map((reference) => ({ ...reference })),
+              }
+            : null,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  moveExerciseSet: (cardId, position) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const exerciseSet = normalizeExerciseSet(card?.exerciseSet);
+
+    if (!card || !exerciseSet) {
+      return;
+    }
+
+    const nextX = Math.max(0, Math.round(position.x));
+    const nextY = Math.max(0, Math.round(position.y));
+
+    if (exerciseSet.x === nextX && exerciseSet.y === nextY) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          exerciseSet: {
+            ...exerciseSet,
+            x: nextX,
+            y: nextY,
+            updatedAt: snapshotUpdatedAt,
+          },
           updatedAt: snapshotUpdatedAt,
         },
       },
