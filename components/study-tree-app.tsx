@@ -3910,6 +3910,10 @@ export function StudyTreeApp() {
           <div
             className="card-modal-overlay"
             onPointerDown={(event) => {
+              if (event.button !== 0 && event.pointerType !== "touch") {
+                return;
+              }
+
               const target = event.target as HTMLElement | null;
 
               if (
