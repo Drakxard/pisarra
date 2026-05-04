@@ -152,6 +152,7 @@ type DetailsTextBoxInteraction =
       startY: number;
       originX: number;
       originY: number;
+      hasMoved: boolean;
     }
   | {
       type: "resize";
@@ -874,9 +875,20 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
       event.preventDefault();
 
       if (interaction.type === "move") {
+        const deltaX = event.clientX - interaction.startX;
+        const deltaY = event.clientY - interaction.startY;
+
+        if (!interaction.hasMoved && Math.hypot(deltaX, deltaY) >= 4) {
+          interaction.hasMoved = true;
+        }
+
+        if (!interaction.hasMoved) {
+          return;
+        }
+
         onMove(cardId, interaction.textBoxId, {
-          x: interaction.originX + event.clientX - interaction.startX,
-          y: interaction.originY + event.clientY - interaction.startY,
+          x: interaction.originX + deltaX,
+          y: interaction.originY + deltaY,
         });
         return;
       }
@@ -941,6 +953,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                 startY: event.clientY,
                 originX: textBox.x,
                 originY: textBox.y,
+                hasMoved: false,
               };
             }}
           >
@@ -1772,14 +1785,12 @@ export function StudyTreeApp() {
 
   const createDetailsTextBox = useEffectEvent((cardId: string) => {
     const overlay = stageRef.current?.querySelector(".card-modal-overlay");
-    const modalBody = stageRef.current?.querySelector(".card-modal-body");
-    const overlayRect =
-      overlay instanceof HTMLElement ? overlay.getBoundingClientRect() : stageRef.current?.getBoundingClientRect();
-    const bodyRect = modalBody instanceof HTMLElement ? modalBody.getBoundingClientRect() : overlayRect;
     const width = 280;
-    const height = 120;
-    const x = bodyRect && overlayRect ? bodyRect.left - overlayRect.left + 24 : 24;
-    const y = bodyRect && overlayRect ? bodyRect.top - overlayRect.top + 220 : 220;
+    const height = 80;
+    const overlayElement = overlay instanceof HTMLElement ? overlay : null;
+    const overlayRect = overlayElement?.getBoundingClientRect();
+    const x = overlayRect ? overlayRect.width / 2 - width / 2 : 24;
+    const y = overlayRect ? overlayElement!.scrollTop + overlayRect.height / 2 - height / 2 : 220;
     const textBoxId = addDetailsTextBox(cardId, {
       x,
       y,
@@ -1790,6 +1801,8 @@ export function StudyTreeApp() {
     setSelectedDetailsImageId(null);
     setSelectedDetailsTextBoxId(textBoxId);
     setPendingTextBoxFocusId(textBoxId);
+
+    return textBoxId;
   });
 
   const clearUndoTimer = useEffectEvent(() => {
@@ -1939,6 +1952,7 @@ export function StudyTreeApp() {
       !event.ctrlKey &&
       !event.altKey &&
       !event.metaKey &&
+      !isEditableTarget(event.target) &&
       (event.key === "Delete" || event.key === "Backspace")
     ) {
       event.preventDefault();
@@ -1998,18 +2012,9 @@ export function StudyTreeApp() {
       return;
     }
 
-    if (openedCardId && !event.ctrlKey && !event.altKey && !event.metaKey) {
-      if (event.key.length === 1 || event.key === "Enter") {
-        event.preventDefault();
-        window.dispatchEvent(
-          new CustomEvent(START_DETAILS_EDIT_EVENT, {
-            detail: {
-              text: event.key === "Enter" ? "\n" : event.key,
-            },
-          }),
-        );
-        return;
-      }
+    if (openedCardId && !event.ctrlKey && !event.altKey && !event.metaKey && event.key.length === 1) {
+      event.preventDefault();
+      return;
     }
 
     if (
@@ -2135,6 +2140,17 @@ export function StudyTreeApp() {
         event.preventDefault();
         setDetailsTableFromCells(openedCardId, tableCells);
         setShowTableMenu(false);
+        return;
+      }
+
+      if (!isEditableTarget(event.target)) {
+        event.preventDefault();
+        const textBoxId = createDetailsTextBox(openedCardId);
+
+        if (textBoxId) {
+          updateDetailsTextBox(openedCardId, textBoxId, pastedText);
+        }
+
         return;
       }
     }
@@ -3017,25 +3033,6 @@ export function StudyTreeApp() {
                 }}
               >
                 <CardContent card={openedCard} mode="full" />
-                <CardDetailsEditor
-                  cardId={openedCard.id}
-                  text={openedCard.detailsText}
-                  onSave={updateCardDetails}
-                  onStartTyping={() => {
-                    setShowTableMenu(false);
-                    setSelectedDetailsImageId(null);
-                    setSelectedDetailsTextBoxId(null);
-                  }}
-                  onPasteTable={(cells) => {
-                    setDetailsTableFromCells(openedCard.id, cells);
-                    setShowTableMenu(false);
-                    setSelectedDetailsImageId(null);
-                    setSelectedDetailsTextBoxId(null);
-                  }}
-                  onPasteImage={(file) => {
-                    void pasteDetailsImage(openedCard.id, file);
-                  }}
-                />
                 {openedCard.detailsTable ? (
                   <DetailsTableEditor
                     cardId={openedCard.id}
