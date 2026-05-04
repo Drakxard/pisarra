@@ -44,6 +44,7 @@ export type DetailsImage = {
 export type DetailsTextBox = {
   id: string;
   text: string;
+  richText?: string | null;
   x: number;
   y: number;
   width: number;

@@ -114,6 +114,7 @@ type TreeStore = {
     placement: { x: number; y: number; width: number; height: number },
   ) => string | null;
   updateDetailsTextBox: (cardId: string, textBoxId: string, text: string) => void;
+  updateDetailsTextBoxContent: (cardId: string, textBoxId: string, text: string, richText: string | null) => void;
   updateDetailsTextBoxStyle: (
     cardId: string,
     textBoxId: string,
@@ -276,6 +277,7 @@ function normalizeDetailsTextBoxes(value: DetailsTextBox[] | null | undefined): 
       return {
         id: textBox.id,
         text: normalizeDraftText(textBox.text ?? ""),
+        richText: typeof textBox.richText === "string" && textBox.richText.trim() ? textBox.richText : null,
         x: Number.isFinite(textBox.x) ? textBox.x : 0,
         y: Number.isFinite(textBox.y) ? textBox.y : 0,
         width: Number.isFinite(textBox.width) && textBox.width > 0 ? textBox.width : 260,
@@ -687,31 +689,62 @@ function findAvailableRect(
   stepX: number,
   stepY: number,
 ) {
-  let nextRect = { ...candidate };
-  let attempts = 0;
-
-  while (occupiedRects.some((occupiedRect) => rectsOverlap(nextRect, occupiedRect))) {
-    attempts += 1;
-
-    if (attempts % 4 === 0) {
-      nextRect = createLayoutRect(
-        Math.max(AUTO_LAYOUT_PADDING, candidate.left + stepX),
-        Math.max(AUTO_LAYOUT_PADDING, nextRect.top + stepY),
-        candidate.right - candidate.left,
-        candidate.bottom - candidate.top,
-      );
-      continue;
-    }
-
-    nextRect = createLayoutRect(
-      Math.max(AUTO_LAYOUT_PADDING, candidate.left),
-      Math.max(AUTO_LAYOUT_PADDING, nextRect.top + stepY),
-      candidate.right - candidate.left,
-      candidate.bottom - candidate.top,
+  const width = candidate.right - candidate.left;
+  const height = candidate.bottom - candidate.top;
+  const buildRect = (offsetX: number, offsetY: number) =>
+    createLayoutRect(
+      Math.max(AUTO_LAYOUT_PADDING, candidate.left + offsetX * stepX),
+      Math.max(AUTO_LAYOUT_PADDING, candidate.top + offsetY * stepY),
+      width,
+      height,
     );
+  const hasCollision = (rect: LayoutRect) => occupiedRects.some((occupiedRect) => rectsOverlap(rect, occupiedRect));
+  const originRect = buildRect(0, 0);
+
+  if (!hasCollision(originRect)) {
+    return originRect;
   }
 
-  return nextRect;
+  for (let radius = 1; radius <= 24; radius += 1) {
+    const candidates: LayoutRect[] = [];
+
+    for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+      for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+        if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) !== radius) {
+          continue;
+        }
+
+        candidates.push(buildRect(offsetX, offsetY));
+      }
+    }
+
+    candidates.sort((left, right) => {
+      const leftDx = left.left - candidate.left;
+      const leftDy = left.top - candidate.top;
+      const rightDx = right.left - candidate.left;
+      const rightDy = right.top - candidate.top;
+      const leftDistance = Math.hypot(leftDx, leftDy);
+      const rightDistance = Math.hypot(rightDx, rightDy);
+
+      if (leftDistance !== rightDistance) {
+        return leftDistance - rightDistance;
+      }
+
+      if (Math.abs(leftDy) !== Math.abs(rightDy)) {
+        return Math.abs(leftDy) - Math.abs(rightDy);
+      }
+
+      return Math.abs(leftDx) - Math.abs(rightDx);
+    });
+
+    const freeRect = candidates.find((rect) => !hasCollision(rect));
+
+    if (freeRect) {
+      return freeRect;
+    }
+  }
+
+  return originRect;
 }
 
 function getAutoCardPosition(
@@ -1821,6 +1854,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     const textBox: DetailsTextBox = {
       id: textBoxId,
       text: "",
+      richText: null,
       x: Math.max(0, Math.round(placement.x)),
       y: Math.max(0, Math.round(placement.y)),
       width: Math.max(120, Math.round(placement.width)),
@@ -1861,6 +1895,40 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     const snapshotUpdatedAt = createSnapshotTimestamp();
     const nextTextBoxes = [...textBoxes];
     nextTextBoxes[textBoxIndex] = { ...textBoxes[textBoxIndex], text: nextText };
+
+    set({
+      cards: {
+        ...cards,
+        [cardId]: {
+          ...card,
+          detailsTextBoxes: nextTextBoxes,
+          updatedAt: snapshotUpdatedAt,
+        },
+      },
+      snapshotUpdatedAt,
+    });
+  },
+  updateDetailsTextBoxContent: (cardId, textBoxId, text, richText) => {
+    const { cards } = get();
+    const card = cards[cardId];
+    const textBoxes = normalizeDetailsTextBoxes(card?.detailsTextBoxes);
+    const textBoxIndex = textBoxes.findIndex((textBox) => textBox.id === textBoxId);
+
+    if (!card || textBoxIndex === -1) {
+      return;
+    }
+
+    const nextText = normalizeDraftText(text);
+    const nextRichText = typeof richText === "string" && richText.trim() ? richText : null;
+    const currentTextBox = textBoxes[textBoxIndex];
+
+    if (currentTextBox.text === nextText && (currentTextBox.richText ?? null) === nextRichText) {
+      return;
+    }
+
+    const snapshotUpdatedAt = createSnapshotTimestamp();
+    const nextTextBoxes = [...textBoxes];
+    nextTextBoxes[textBoxIndex] = { ...currentTextBox, text: nextText, richText: nextRichText };
 
     set({
       cards: {

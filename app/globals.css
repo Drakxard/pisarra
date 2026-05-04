@@ -953,6 +953,13 @@ img {
   line-height: 1.18;
 }
 
+.details-text-box-editor a,
+.details-text-box-display a {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .details-text-box-editor:empty::before {
   content: attr(data-placeholder);
   color: rgba(17, 17, 17, 0.32);
@@ -971,23 +978,28 @@ img {
   content: "• ";
 }
 
-.details-text-box-editor.is-small {
+.details-text-box-editor.is-small,
+.details-text-box-display.is-small {
   font-size: 1.15rem;
 }
 
-.details-text-box-editor.is-medium {
+.details-text-box-editor.is-medium,
+.details-text-box-display.is-medium {
   font-size: 1.45rem;
 }
 
-.details-text-box-editor.is-large {
+.details-text-box-editor.is-large,
+.details-text-box-display.is-large {
   font-size: 1.85rem;
 }
 
-.details-text-box-editor.is-xlarge {
+.details-text-box-editor.is-xlarge,
+.details-text-box-display.is-xlarge {
   font-size: 2.3rem;
 }
 
-.details-text-box-editor.is-huge {
+.details-text-box-editor.is-huge,
+.details-text-box-display.is-huge {
   font-size: 2.85rem;
 }
 

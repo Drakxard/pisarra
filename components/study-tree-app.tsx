@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type CSSProperties,
   type ClipboardEvent as ReactClipboardEvent,
   type FocusEvent as ReactFocusEvent,
   memo,
@@ -341,23 +342,62 @@ function getElementRectWithinBody(element: Element, body: HTMLElement): Rect | n
 }
 
 function findAvailableRect(candidate: Rect, occupied: Rect[], stepX: number, stepY: number) {
-  let next = { ...candidate };
-  let guard = 0;
-
-  while (occupied.some((rect) => rectsOverlap(next, rect)) && guard < 200) {
-    const width = next.right - next.left;
-    const height = next.bottom - next.top;
-    const shouldShiftColumn = guard > 0 && guard % 4 === 0;
-    next = createRect(
-      shouldShiftColumn ? candidate.left + stepX : candidate.left,
-      next.bottom + stepY,
+  const width = candidate.right - candidate.left;
+  const height = candidate.bottom - candidate.top;
+  const buildRect = (offsetX: number, offsetY: number) =>
+    createRect(
+      Math.max(0, candidate.left + offsetX * stepX),
+      Math.max(0, candidate.top + offsetY * stepY),
       width,
       height,
     );
-    guard += 1;
+  const hasCollision = (rect: Rect) => occupied.some((occupiedRect) => rectsOverlap(rect, occupiedRect));
+  const originRect = buildRect(0, 0);
+
+  if (!hasCollision(originRect)) {
+    return originRect;
   }
 
-  return next;
+  for (let radius = 1; radius <= 24; radius += 1) {
+    const candidates: Rect[] = [];
+
+    for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+      for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+        if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) !== radius) {
+          continue;
+        }
+
+        candidates.push(buildRect(offsetX, offsetY));
+      }
+    }
+
+    candidates.sort((left, right) => {
+      const leftDx = left.left - candidate.left;
+      const leftDy = left.top - candidate.top;
+      const rightDx = right.left - candidate.left;
+      const rightDy = right.top - candidate.top;
+      const leftDistance = Math.hypot(leftDx, leftDy);
+      const rightDistance = Math.hypot(rightDx, rightDy);
+
+      if (leftDistance !== rightDistance) {
+        return leftDistance - rightDistance;
+      }
+
+      if (Math.abs(leftDy) !== Math.abs(rightDy)) {
+        return Math.abs(leftDy) - Math.abs(rightDy);
+      }
+
+      return Math.abs(leftDx) - Math.abs(rightDx);
+    });
+
+    const freeRect = candidates.find((rect) => !hasCollision(rect));
+
+    if (freeRect) {
+      return freeRect;
+    }
+  }
+
+  return originRect;
 }
 
 function getRectVisibilityDelta(rect: Rect, viewport: Rect, margin = 24) {
@@ -619,6 +659,87 @@ function getCaretClientPoint() {
     x: markerRect.left,
     y: markerRect.top,
   };
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function plainTextToRichText(value: string) {
+  return escapeHtml(value).replace(/\n/g, "<br>");
+}
+
+function normalizeMultilineText(value: string) {
+  return value.replace(/\r\n?/g, "\n");
+}
+
+function normalizeRichTextHtml(value: string) {
+  const template = document.createElement("template");
+  template.innerHTML = value;
+
+  for (const element of Array.from(template.content.querySelectorAll("*"))) {
+    if (element.tagName !== "A" && element.tagName !== "BR") {
+      const parent = element.parentNode;
+
+      if (parent) {
+        while (element.firstChild) {
+          parent.insertBefore(element.firstChild, element);
+        }
+        parent.removeChild(element);
+      }
+      continue;
+    }
+
+    if (element.tagName === "A") {
+      const anchor = element as HTMLAnchorElement;
+      const href = anchor.getAttribute("href")?.trim();
+
+      if (!href) {
+        const parent = anchor.parentNode;
+        if (parent) {
+          while (anchor.firstChild) {
+            parent.insertBefore(anchor.firstChild, anchor);
+          }
+          parent.removeChild(anchor);
+        }
+        continue;
+      }
+
+      anchor.setAttribute("href", href);
+      anchor.setAttribute("target", "_blank");
+      anchor.setAttribute("rel", "noreferrer noopener");
+    }
+  }
+
+  return template.innerHTML;
+}
+
+function applyLinkToFocusedEditor() {
+  const activeElement = document.activeElement;
+
+  if (!(activeElement instanceof HTMLDivElement) || !activeElement.classList.contains("details-text-box-editor")) {
+    return false;
+  }
+
+  const selection = window.getSelection();
+
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !activeElement.contains(selection.anchorNode)) {
+    return false;
+  }
+
+  const url = window.prompt("URL del enlace")?.trim();
+
+  if (!url) {
+    return false;
+  }
+
+  activeElement.focus({ preventScroll: true });
+  document.execCommand("createLink", false, url);
+  activeElement.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertLink" }));
+  return true;
 }
 
 const CardDetailsEditor = memo(function CardDetailsEditor({
@@ -1126,7 +1247,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
   textBoxes,
   selectedTextBoxId,
   onSelect,
-  onUpdate,
+  onUpdateContent,
   onStyle,
   onMove,
   onResize,
@@ -1135,7 +1256,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
   textBoxes: DetailsTextBox[];
   selectedTextBoxId: string | null;
   onSelect: (textBoxId: string | null) => void;
-  onUpdate: (cardId: string, textBoxId: string, text: string) => void;
+  onUpdateContent: (cardId: string, textBoxId: string, text: string, richText: string | null) => void;
   onStyle: (
     cardId: string,
     textBoxId: string,
@@ -1151,6 +1272,37 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
   const [editingTextBoxId, setEditingTextBoxId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState("");
   const [openMenu, setOpenMenu] = useState<"color" | "size" | "align" | null>(null);
+
+  const persistTextBoxContent = useEffectEvent((textBoxId: string, editor: HTMLDivElement) => {
+    const nextText = normalizeMultilineText(editor.innerText ?? "");
+    const nextRichText = normalizeRichTextHtml(editor.innerHTML ?? "");
+    setEditingDraft(nextText);
+    onUpdateContent(cardId, textBoxId, nextText, nextRichText || null);
+  });
+
+  const applyLinkToSelection = useEffectEvent((textBox: DetailsTextBox) => {
+    const editor = editingEditorRef.current;
+
+    if (!editor || editingTextBoxId !== textBox.id) {
+      return;
+    }
+
+    editor.focus({ preventScroll: true });
+    const selection = window.getSelection();
+
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !editor.contains(selection.anchorNode)) {
+      return;
+    }
+
+    const url = window.prompt("URL del enlace")?.trim();
+
+    if (!url) {
+      return;
+    }
+
+    document.execCommand("createLink", false, url);
+    persistTextBoxContent(textBox.id, editor);
+  });
 
   useEffect(() => {
     if (selectedTextBoxId && editingTextBoxId && selectedTextBoxId !== editingTextBoxId) {
@@ -1187,15 +1339,23 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
       return;
     }
 
+    const activeTextBox = textBoxes.find((textBox) => textBox.id === editingTextBoxId);
+
+    if (!activeTextBox) {
+      return;
+    }
+
+    const nextRichText = activeTextBox.richText ?? plainTextToRichText(activeTextBox.text);
+
     const isNewEditingTarget = lastFocusedEditingTextBoxIdRef.current !== editingTextBoxId;
 
-    if (!isNewEditingTarget && editor.innerText !== editingDraft && document.activeElement !== editor) {
-      editor.innerText = editingDraft;
+    if (!isNewEditingTarget && normalizeMultilineText(editor.innerText) !== editingDraft && document.activeElement !== editor) {
+      editor.innerHTML = nextRichText;
     }
 
     if (isNewEditingTarget) {
-      if (editor.innerText !== editingDraft) {
-        editor.innerText = editingDraft;
+      if (normalizeMultilineText(editor.innerText) !== editingDraft) {
+        editor.innerHTML = nextRichText;
       }
 
       editor.focus({ preventScroll: true });
@@ -1210,7 +1370,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
 
       lastFocusedEditingTextBoxIdRef.current = editingTextBoxId;
     }
-  }, [editingDraft, editingTextBoxId]);
+  }, [editingDraft, editingTextBoxId, textBoxes]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -1270,6 +1430,14 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
     <div className="details-text-box-layer" aria-label="Textos libres del detalle">
       {textBoxes.map((textBox) => {
         const isSelected = selectedTextBoxId === textBox.id;
+        const textBoxClassName = `${TEXT_BOX_FONT_SIZES[textBox.fontSize].className} ${
+          textBox.bulleted ? "is-bulleted" : ""
+        }`;
+        const textBoxContentStyle = {
+          fontWeight: textBox.bold ? 700 : 400,
+          textDecoration: textBox.strike ? "line-through" : undefined,
+        } satisfies CSSProperties;
+        const displayHtml = textBox.richText ?? plainTextToRichText(textBox.text);
 
         return (
           <div
@@ -1289,6 +1457,10 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
               onSelect(textBox.id);
 
               if (target?.closest(".details-text-box-editor")) {
+                return;
+              }
+
+              if (target?.closest("a")) {
                 return;
               }
 
@@ -1351,12 +1523,9 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                 </button>
                 <button
                   type="button"
-                  className={`details-text-toolbar-button ${textBox.linkUrl ? "is-active" : ""}`}
+                  className="details-text-toolbar-button"
                   title="Crear enlace Ctrl+Shift+U"
-                  onClick={() => {
-                    const nextUrl = textBox.linkUrl ? null : window.prompt("URL del enlace")?.trim() || null;
-                    onStyle(cardId, textBox.id, { linkUrl: nextUrl });
-                  }}
+                  onClick={() => applyLinkToSelection(textBox)}
                 >
                   Link
                 </button>
@@ -1431,22 +1600,15 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
             {editingTextBoxId === textBox.id ? (
               <div
                 ref={editingEditorRef}
-                className={`details-text-box-editor ${TEXT_BOX_FONT_SIZES[textBox.fontSize].className} ${
-                  textBox.bulleted ? "is-bulleted" : ""
-                }`}
+                className={`details-text-box-editor ${textBoxClassName}`}
                 contentEditable
                 suppressContentEditableWarning
                 role="textbox"
                 aria-multiline="true"
                 data-placeholder="Agregar texto"
-                style={{
-                  fontWeight: textBox.bold ? 700 : 400,
-                  textDecoration: `${textBox.strike ? "line-through" : ""} ${textBox.linkUrl ? "underline" : ""}`.trim() || undefined,
-                }}
+                style={textBoxContentStyle}
                 onInput={(event) => {
-                  const nextText = event.currentTarget.innerText ?? "";
-                  setEditingDraft(nextText);
-                  onUpdate(cardId, textBox.id, nextText);
+                  persistTextBoxContent(textBox.id, event.currentTarget);
                 }}
                 onBlur={(event) => {
                   const nextTarget = event.relatedTarget as Node | null;
@@ -1458,20 +1620,26 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
 
                   setEditingTextBoxId((currentId) => (currentId === textBox.id ? null : currentId));
                   editingPointRef.current = null;
-                  onUpdate(cardId, textBox.id, event.currentTarget.innerText ?? "");
+                  persistTextBoxContent(textBox.id, event.currentTarget);
                 }}
               />
             ) : (
               <div
-                className={`details-text-box-display ${TEXT_BOX_FONT_SIZES[textBox.fontSize].className} ${
-                  textBox.bulleted ? "is-bulleted" : ""
-                }`}
+                className={`details-text-box-display ${textBoxClassName}`}
                 role="textbox"
                 aria-multiline="true"
                 data-placeholder="Agregar texto"
-                style={{
-                  fontWeight: textBox.bold ? 700 : 400,
-                  textDecoration: `${textBox.strike ? "line-through" : ""} ${textBox.linkUrl ? "underline" : ""}`.trim() || undefined,
+                style={textBoxContentStyle}
+                onClick={(event) => {
+                  const anchor = (event.target as HTMLElement | null)?.closest("a");
+
+                  if (!anchor) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  event.stopPropagation();
+                  window.open((anchor as HTMLAnchorElement).href, "_blank", "noopener,noreferrer");
                 }}
                 onDoubleClick={(event) => {
                   event.preventDefault();
@@ -1482,9 +1650,8 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                   setEditingTextBoxId(textBox.id);
                   setEditingDraft(textBox.text);
                 }}
-              >
-                {textBox.text}
-              </div>
+                dangerouslySetInnerHTML={{ __html: displayHtml }}
+              />
             )}
             {isSelected ? (
               <button
@@ -2053,6 +2220,7 @@ export function StudyTreeApp() {
     deleteDetailsImage,
     addDetailsTextBox,
     updateDetailsTextBox,
+    updateDetailsTextBoxContent,
     updateDetailsTextBoxStyle,
     moveDetailsTextBox,
     resizeDetailsTextBox,
@@ -2119,6 +2287,7 @@ export function StudyTreeApp() {
   const dragStateRef = useRef<DragState | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const modalPanStateRef = useRef<ScrollPanState | null>(null);
+  const modalInitialFocusSessionRef = useRef<string | null>(null);
   const cameraRef = useRef({ x: 0, y: 0 });
   const closeHoldTimeoutRef = useRef<number | null>(null);
   const closeHoldDidDeleteRef = useRef(false);
@@ -2776,9 +2945,7 @@ export function StudyTreeApp() {
 
         if (event.shiftKey && event.key.toLocaleLowerCase() === "u") {
           event.preventDefault();
-          const textBox = cards[openedCardId]?.detailsTextBoxes?.find((item) => item.id === selectedDetailsTextBoxId);
-          const nextUrl = textBox?.linkUrl ? null : window.prompt("URL del enlace")?.trim() || null;
-          updateDetailsTextBoxStyle(openedCardId, selectedDetailsTextBoxId, { linkUrl: nextUrl });
+          applyLinkToFocusedEditor();
           return;
         }
       }
@@ -2902,9 +3069,7 @@ export function StudyTreeApp() {
 
       if (event.shiftKey && event.key.toLocaleLowerCase() === "u") {
         event.preventDefault();
-        const textBox = cards[openedCardId]?.detailsTextBoxes?.find((item) => item.id === selectedDetailsTextBoxId);
-        const nextUrl = textBox?.linkUrl ? null : window.prompt("URL del enlace")?.trim() || null;
-        updateDetailsTextBoxStyle(openedCardId, selectedDetailsTextBoxId, { linkUrl: nextUrl });
+        applyLinkToFocusedEditor();
         return;
       }
     }
@@ -3365,8 +3530,15 @@ export function StudyTreeApp() {
 
   useLayoutEffect(() => {
     if (!openedCardId) {
+      modalInitialFocusSessionRef.current = null;
       return;
     }
+
+    if (modalInitialFocusSessionRef.current === openedCardId) {
+      return;
+    }
+
+    modalInitialFocusSessionRef.current = openedCardId;
 
     window.requestAnimationFrame(() => {
       resetModalViewportToContent();
@@ -4162,7 +4334,7 @@ export function StudyTreeApp() {
                     setSelectedDetailsImageId(null);
                     setSelectedDetailsTextBoxId(textBoxId);
                   }}
-                  onUpdate={updateDetailsTextBox}
+                  onUpdateContent={updateDetailsTextBoxContent}
                   onStyle={updateDetailsTextBoxStyle}
                   onMove={moveDetailsTextBox}
                   onResize={resizeDetailsTextBox}
