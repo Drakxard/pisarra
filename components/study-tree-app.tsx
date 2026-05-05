@@ -1383,6 +1383,14 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
     onUpdateContent(cardId, textBoxId, nextText, nextRichText || null);
   });
 
+  const beginTextBoxEditing = useEffectEvent((textBox: DetailsTextBox, point?: { x: number; y: number } | null) => {
+    interactionRef.current = null;
+    editingPointRef.current = point ?? null;
+    onSelect(textBox.id);
+    setEditingTextBoxId(textBox.id);
+    setEditingDraft(textBox.text);
+  });
+
   const finishTextBoxEditing = useEffectEvent((textBoxId: string, editor: HTMLDivElement) => {
     const nextText = normalizeMultilineText(editor.innerText ?? "");
     const nextRichText = normalizeRichTextHtml(editor.innerHTML ?? "");
@@ -1615,6 +1623,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
               }
 
               if (event.detail >= 2 && target?.closest(".details-text-box-display")) {
+                interactionRef.current = null;
                 return;
               }
 
@@ -1797,13 +1806,15 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                   window.open((anchor as HTMLAnchorElement).href, "_blank", "noopener,noreferrer");
                 }}
                 onDoubleClick={(event) => {
+                  const anchor = (event.target as HTMLElement | null)?.closest("a");
+
+                  if (anchor) {
+                    return;
+                  }
+
                   event.preventDefault();
                   event.stopPropagation();
-                  interactionRef.current = null;
-                  editingPointRef.current = { x: event.clientX, y: event.clientY };
-                  onSelect(textBox.id);
-                  setEditingTextBoxId(textBox.id);
-                  setEditingDraft(textBox.text);
+                  beginTextBoxEditing(textBox, { x: event.clientX, y: event.clientY });
                 }}
                 dangerouslySetInnerHTML={{ __html: displayHtml }}
               />
@@ -2672,6 +2683,25 @@ export function StudyTreeApp() {
     });
   });
 
+  const getDetailsInsertionPoint = useEffectEvent(() => {
+    const pointerPoint = lastDetailsPointerRef.current;
+
+    if (pointerPoint) {
+      return pointerPoint;
+    }
+
+    const overlay = getModalOverlay();
+
+    if (!overlay) {
+      return { x: 24, y: 24 };
+    }
+
+    return {
+      x: overlay.scrollLeft + overlay.clientWidth / 2,
+      y: overlay.scrollTop + overlay.clientHeight / 2,
+    };
+  });
+
   const applyRemoteProjectSnapshot = useEffectEvent((project: RemoteProject) => {
     const previousCamera = cameraRef.current;
 
@@ -2835,29 +2865,16 @@ export function StudyTreeApp() {
   const pasteDetailsImage = useEffectEvent(async (cardId: string, file: File) => {
     try {
       const image = await createDraftImageFromFile(file);
-      const overlay = getModalOverlay();
-      const modalBody = getModalBody();
-      const caretPoint = getCaretClientPoint();
-      const bodyRect = modalBody instanceof HTMLElement ? modalBody.getBoundingClientRect() : null;
       const maxWidth = Math.min(image.width ?? 320, 420);
       const aspectRatio = image.width && image.height ? image.height / image.width : 0.65;
       const width = Math.max(120, maxWidth);
       const height = Math.max(90, width * aspectRatio);
-      const card = cards[cardId];
-
-      if (!card) {
-        return;
-      }
-
-      const baseX = caretPoint && bodyRect
-        ? caretPoint.x - bodyRect.left
-        : (overlay?.scrollLeft ?? 0) + ((overlay?.clientWidth ?? width) - width) / 2;
-      const baseY = caretPoint && bodyRect
-        ? caretPoint.y - bodyRect.top + 28
-        : (overlay?.scrollTop ?? 0) + (overlay?.clientHeight ?? height) - height - 48;
-      const nextRect = findAvailableModalRect(
-        card,
-        createRect(Math.max(16, baseX), Math.max(24, baseY), width, height),
+      const insertionPoint = getDetailsInsertionPoint();
+      const nextRect = createRect(
+        Math.max(16, insertionPoint.x - width / 2),
+        Math.max(24, insertionPoint.y - height / 2),
+        width,
+        height,
       );
       const imageId = addDetailsImage(cardId, image, {
         x: Math.round(nextRect.left),
@@ -2882,21 +2899,13 @@ export function StudyTreeApp() {
   const createDetailsTextBox = useEffectEvent((cardId: string) => {
     const width = 280;
     const height = 80;
-    const pointerPoint = lastDetailsPointerRef.current;
-    const overlay = getModalOverlay();
-    const card = cards[cardId];
-
-    if (!card) {
-      return null;
-    }
-
-    const baseX = pointerPoint
-      ? Math.max(16, pointerPoint.x - width / 2)
-      : (overlay?.scrollLeft ?? 0) + 24;
-    const baseY = pointerPoint
-      ? Math.max(24, pointerPoint.y + 24)
-      : (overlay?.scrollTop ?? 0) + (overlay?.clientHeight ?? 0) - height - 48;
-    const nextRect = findAvailableModalRect(card, createRect(baseX, baseY, width, height));
+    const insertionPoint = getDetailsInsertionPoint();
+    const nextRect = createRect(
+      Math.max(16, insertionPoint.x - width / 2),
+      Math.max(24, insertionPoint.y - height / 2),
+      width,
+      height,
+    );
     const textBoxId = addDetailsTextBox(cardId, {
       x: Math.round(nextRect.left),
       y: Math.round(nextRect.top),
