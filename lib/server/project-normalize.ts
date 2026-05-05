@@ -21,6 +21,10 @@ type RawProjectSnapshot = Partial<Omit<ProjectSnapshot, "version">> & {
   version?: number;
 };
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
 function normalizeDetailsTextBoxStyleDefaults(
   value: Partial<DetailsTextBoxStyleDefaults> | null | undefined,
 ): DetailsTextBoxStyleDefaults {
@@ -276,35 +280,56 @@ function withAssetPreviewUrl<T extends { path: string; previewUrl?: string }>(as
 }
 
 function normalizeCards(value: unknown) {
-  const cards = value && typeof value === "object" ? (value as Record<string, QuestionCard>) : {};
+  const cards = asRecord(value);
+  const timestamp = new Date().toISOString();
 
   return Object.fromEntries(
-    Object.entries(cards).map(([cardId, card]) => [
-      cardId,
-      {
-        ...card,
-        id: card.id || cardId,
-        text: typeof card.text === "string" ? card.text : "",
-        detailsText: typeof card.detailsText === "string" ? card.detailsText : "",
-        detailsTable: normalizeDetailsTable(card.detailsTable),
-        detailsImages: normalizeDetailsImages(card.detailsImages).map(withAssetPreviewUrl),
-        detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes),
-        exerciseReferences: normalizeExerciseReferences(card.exerciseReferences).length
-          ? normalizeExerciseReferences(card.exerciseReferences)
-          : normalizeLegacyExerciseReferences((card as QuestionCard & { exerciseSet?: unknown }).exerciseSet),
-        image: card.image
-          ? withAssetPreviewUrl({
-              path: card.image.path,
-              mimeType: card.image.mimeType,
-              name: card.image.name,
-              width: card.image.width,
-              height: card.image.height,
-              previewUrl: card.image.previewUrl,
-              pendingBlob: null,
-            })
-          : null,
-      } satisfies QuestionCard,
-    ]),
+    Object.entries(cards).map(([cardId, card]) => {
+      const sourceCard = card && typeof card === "object" ? (card as Partial<QuestionCard>) : {};
+      const normalizedExerciseReferences = normalizeExerciseReferences(sourceCard.exerciseReferences);
+
+      return [
+        cardId,
+        {
+          ...asRecord(card),
+          id: typeof sourceCard.id === "string" && sourceCard.id ? sourceCard.id : cardId,
+          text: typeof sourceCard.text === "string" ? sourceCard.text : "",
+          detailsText: typeof sourceCard.detailsText === "string" ? sourceCard.detailsText : "",
+          detailsTable: normalizeDetailsTable(sourceCard.detailsTable),
+          detailsImages: normalizeDetailsImages(sourceCard.detailsImages).map(withAssetPreviewUrl),
+          detailsTextBoxes: normalizeDetailsTextBoxes(sourceCard.detailsTextBoxes),
+          exerciseReferences: normalizedExerciseReferences.length
+            ? normalizedExerciseReferences
+            : normalizeLegacyExerciseReferences((sourceCard as QuestionCard & { exerciseSet?: unknown }).exerciseSet),
+          image: sourceCard.image
+            ? withAssetPreviewUrl({
+                path: sourceCard.image.path,
+                mimeType: sourceCard.image.mimeType,
+                name: sourceCard.image.name,
+                width: sourceCard.image.width,
+                height: sourceCard.image.height,
+                previewUrl: sourceCard.image.previewUrl,
+                pendingBlob: null,
+              })
+            : null,
+          position:
+            sourceCard.position &&
+            typeof sourceCard.position.x === "number" &&
+            typeof sourceCard.position.y === "number"
+              ? {
+                  x: Math.round(sourceCard.position.x),
+                  y: Math.round(sourceCard.position.y),
+                }
+              : { x: 0, y: 0 },
+          zIndex:
+            typeof sourceCard.zIndex === "number" && Number.isFinite(sourceCard.zIndex)
+              ? sourceCard.zIndex
+              : 1,
+          createdAt: typeof sourceCard.createdAt === "string" ? sourceCard.createdAt : timestamp,
+          updatedAt: typeof sourceCard.updatedAt === "string" ? sourceCard.updatedAt : timestamp,
+        } satisfies QuestionCard,
+      ];
+    }),
   );
 }
 
@@ -373,7 +398,8 @@ export function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectS
         };
   const categories = Object.fromEntries(
     Object.entries(sourceCategories).map(([categoryId, category]) => {
-      const source = category as StudyCategory;
+      const source =
+        category && typeof category === "object" ? (category as Partial<StudyCategory>) : {};
       const cards = normalizeCards(source.cards);
       const sections = normalizeSections(source.sections, timestamp);
 

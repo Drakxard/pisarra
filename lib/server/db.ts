@@ -244,14 +244,11 @@ export async function getProjectSyncState({
         p.id,
         p.snapshot,
         p.snapshot_version,
-        coalesce((select max(id) from project_events where project_id = p.id), 0) as latest_event_id,
-        bool_or(e.id is not null and (e.client_id is distinct from $4)) as has_remote_event
+        coalesce((select max(id) from project_events where project_id = p.id), 0) as latest_event_id
       from projects p
-      left join project_events e on e.project_id = p.id and e.id > $2
       where p.id = $1
-      group by p.id, p.snapshot, p.snapshot_version
     `,
-    [projectId, sinceEventId, snapshotVersion, clientId],
+    [projectId],
   );
   const row = result.rows[0];
   const latestEventId = Number(row.latest_event_id);

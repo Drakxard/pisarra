@@ -59,8 +59,13 @@ const CARD_FALLBACK_WIDTH = 320;
 const CARD_FALLBACK_HEIGHT = 220;
 const KEYBOARD_MOVE_STEP = 24;
 const START_DETAILS_EDIT_EVENT = "study-tree:start-details-edit";
-const EDGE_PAN_MARGIN = 72;
-const EDGE_PAN_MAX_STEP = 18;
+const DRAG_START_DISTANCE = 6;
+const MAP_EDGE_PAN_MARGIN = 36;
+const MAP_EDGE_PAN_MAX_STEP = 10;
+const MODAL_EDGE_PAN_MARGIN = 24;
+const MODAL_EDGE_PAN_MAX_STEP = 6;
+const DETAILS_INSERT_VIEWPORT_PADDING = 32;
+const CARD_OPEN_HOLD_MS = 450;
 const CLOSE_HOLD_DELETE_MS = 800;
 const MIN_TABLE_COLUMN_WIDTH = 72;
 const MIN_TABLE_ROW_HEIGHT = 36;
@@ -99,6 +104,7 @@ type DragState = {
   cameraOriginX: number;
   cameraOriginY: number;
   hasMoved: boolean;
+  captureTarget: HTMLDivElement | null;
 };
 
 type PanState = {
@@ -443,6 +449,18 @@ function getRectVisibilityDelta(rect: Rect, viewport: Rect, margin = 24) {
   }
 
   return { deltaX, deltaY };
+}
+
+function getEdgePanOffset(distanceFromStart: number, distanceFromEnd: number, margin: number, maxStep: number) {
+  if (distanceFromStart < margin) {
+    return -maxStep * (1 - clamp(distanceFromStart, 0, margin) / margin);
+  }
+
+  if (distanceFromEnd < margin) {
+    return maxStep * (1 - clamp(distanceFromEnd, 0, margin) / margin);
+  }
+
+  return 0;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -923,6 +941,7 @@ const DetailsTableEditor = memo(function DetailsTableEditor({
   isSelected,
   isEditing,
   onSelect,
+  onDelete,
   onBeginEditing,
   onMove,
   onUpdateCell,
@@ -936,6 +955,7 @@ const DetailsTableEditor = memo(function DetailsTableEditor({
   isSelected: boolean;
   isEditing: boolean;
   onSelect: () => void;
+  onDelete: (cardId: string) => void;
   onBeginEditing: () => void;
   onMove: (cardId: string, position: { x: number; y: number }) => void;
   onUpdateCell: (cardId: string, rowIndex: number, columnIndex: number, value: string) => void;
@@ -959,9 +979,13 @@ const DetailsTableEditor = memo(function DetailsTableEditor({
       if (interaction.type === "move") {
         if (
           !interaction.hasMoved &&
-          Math.hypot(event.clientX - interaction.startX, event.clientY - interaction.startY) >= 4
+          Math.hypot(event.clientX - interaction.startX, event.clientY - interaction.startY) >= DRAG_START_DISTANCE
         ) {
           interaction.hasMoved = true;
+        }
+
+        if (!interaction.hasMoved) {
+          return;
         }
 
         onMove(cardId, {
@@ -1020,6 +1044,21 @@ const DetailsTableEditor = memo(function DetailsTableEditor({
         const onResizer = Boolean(
           target?.closest(".details-table-column-resizer") || target?.closest(".details-table-row-resizer"),
         );
+
+        if (event.button === 1) {
+          if (isEditing) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          onDelete(cardId);
+          return;
+        }
+
+        if (event.button !== 0 && event.pointerType !== "touch") {
+          return;
+        }
 
         onSelect();
 
@@ -1145,6 +1184,7 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
   images,
   selectedImageId,
   onSelect,
+  onDelete,
   onMove,
   onResize,
   onRotate,
@@ -1155,6 +1195,7 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
   images: DetailsImage[];
   selectedImageId: string | null;
   onSelect: (imageId: string | null) => void;
+  onDelete: (cardId: string, imageId: string) => void;
   onMove: (cardId: string, imageId: string, position: { x: number; y: number }) => void;
   onResize: (cardId: string, imageId: string, size: { width: number; height: number }) => void;
   onRotate: (cardId: string, imageId: string, rotation: number) => void;
@@ -1177,7 +1218,7 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
         const deltaX = event.clientX - interaction.startX;
         const deltaY = event.clientY - interaction.startY;
 
-        if (!interaction.hasMoved && Math.hypot(deltaX, deltaY) >= 4) {
+        if (!interaction.hasMoved && Math.hypot(deltaX, deltaY) >= DRAG_START_DISTANCE) {
           interaction.hasMoved = true;
         }
 
@@ -1258,6 +1299,18 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
               transform: `rotate(${image.rotation}deg)`,
             }}
             onPointerDown={(event) => {
+              if (event.button === 1) {
+                event.preventDefault();
+                event.stopPropagation();
+                onDelete(cardId, image.id);
+                onSelect(null);
+                return;
+              }
+
+              if (event.button !== 0 && event.pointerType !== "touch") {
+                return;
+              }
+
               event.preventDefault();
               event.stopPropagation();
               onSelect(image.id);
@@ -1275,6 +1328,18 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
                 hasMoved: false,
               };
               event.currentTarget.setPointerCapture?.(event.pointerId);
+            }}
+            onDoubleClick={(event) => {
+              const target = event.target as HTMLElement | null;
+
+              if (!image.previewUrl || target?.closest("button")) {
+                return;
+              }
+
+              event.preventDefault();
+              event.stopPropagation();
+              interactionRef.current = null;
+              window.open(image.previewUrl, "_blank", "noopener,noreferrer");
             }}
           >
             {image.previewUrl ? (
@@ -1525,11 +1590,11 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
 
       event.preventDefault();
 
-      if (interaction.type === "move") {
+        if (interaction.type === "move") {
         const deltaX = event.clientX - interaction.startX;
         const deltaY = event.clientY - interaction.startY;
 
-        if (!interaction.hasMoved && Math.hypot(deltaX, deltaY) >= 4) {
+        if (!interaction.hasMoved && Math.hypot(deltaX, deltaY) >= DRAG_START_DISTANCE) {
           interaction.hasMoved = true;
         }
 
@@ -1612,11 +1677,28 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
             }}
             onPointerDown={(event) => {
               const target = event.target as HTMLElement | null;
-              onSelect(textBox.id);
+
+              if (event.button === 1) {
+                if (target?.closest(".details-text-box-editor")) {
+                  return;
+                }
+
+                event.preventDefault();
+                event.stopPropagation();
+                onDelete(cardId, textBox.id);
+                onSelect(null);
+                return;
+              }
+
+              if (event.button !== 0 && event.pointerType !== "touch") {
+                return;
+              }
 
               if (target?.closest(".details-text-box-editor")) {
                 return;
               }
+
+              onSelect(textBox.id);
 
               if (target?.closest("a")) {
                 return;
@@ -1856,6 +1938,7 @@ const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
   selectedReferenceId,
   category,
   onSelect,
+  onDelete,
   onOpenReference,
   onMove,
 }: {
@@ -1864,6 +1947,7 @@ const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
   selectedReferenceId: string | null;
   category: StudyCategory | null;
   onSelect: (referenceId: string | null) => void;
+  onDelete: (cardId: string, referenceId: string) => void;
   onOpenReference: (sourceSectionId: "definitions" | "theorems", sourceCardId: string) => void;
   onMove: (cardId: string, referenceId: string, position: { x: number; y: number }) => void;
 }) {
@@ -1896,7 +1980,7 @@ const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
       const deltaX = event.clientX - interaction.startX;
       const deltaY = event.clientY - interaction.startY;
 
-      if (!interaction.hasMoved && Math.hypot(deltaX, deltaY) >= 4) {
+      if (!interaction.hasMoved && Math.hypot(deltaX, deltaY) >= DRAG_START_DISTANCE) {
         interaction.hasMoved = true;
       }
 
@@ -1958,6 +2042,18 @@ const ExerciseReferencesLayer = memo(function ExerciseReferencesLayer({
             role={source ? "button" : undefined}
             tabIndex={source ? 0 : -1}
             onPointerDown={(event) => {
+              if (event.button === 1) {
+                event.preventDefault();
+                event.stopPropagation();
+                onDelete(cardId, reference.id);
+                onSelect(null);
+                return;
+              }
+
+              if (event.button !== 0 && event.pointerType !== "touch") {
+                return;
+              }
+
               onSelect(reference.id);
               interactionRef.current = {
                 type: "move",
@@ -2460,6 +2556,7 @@ export function StudyTreeApp() {
   const cameraRef = useRef({ x: 0, y: 0 });
   const closeHoldTimeoutRef = useRef<number | null>(null);
   const closeHoldDidDeleteRef = useRef(false);
+  const cardOpenHoldTimeoutRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState<StageSize>({
     width: DEFAULT_STAGE_WIDTH,
     height: DEFAULT_STAGE_HEIGHT,
@@ -2553,18 +2650,8 @@ export function StudyTreeApp() {
     const rightDistance = rect.right - clientX;
     const topDistance = clientY - rect.top;
     const bottomDistance = rect.bottom - clientY;
-
-    if (leftDistance < EDGE_PAN_MARGIN) {
-      panX = -EDGE_PAN_MAX_STEP * (1 - clamp(leftDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
-    } else if (rightDistance < EDGE_PAN_MARGIN) {
-      panX = EDGE_PAN_MAX_STEP * (1 - clamp(rightDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
-    }
-
-    if (topDistance < EDGE_PAN_MARGIN) {
-      panY = -EDGE_PAN_MAX_STEP * (1 - clamp(topDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
-    } else if (bottomDistance < EDGE_PAN_MARGIN) {
-      panY = EDGE_PAN_MAX_STEP * (1 - clamp(bottomDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
-    }
+    panX = getEdgePanOffset(leftDistance, rightDistance, MODAL_EDGE_PAN_MARGIN, MODAL_EDGE_PAN_MAX_STEP);
+    panY = getEdgePanOffset(topDistance, bottomDistance, MODAL_EDGE_PAN_MARGIN, MODAL_EDGE_PAN_MAX_STEP);
 
     const previousScrollLeft = overlay.scrollLeft;
     const previousScrollTop = overlay.scrollTop;
@@ -2700,6 +2787,61 @@ export function StudyTreeApp() {
       x: overlay.scrollLeft + overlay.clientWidth / 2,
       y: overlay.scrollTop + overlay.clientHeight / 2,
     };
+  });
+
+  const getVisibleModalViewport = useEffectEvent(() => {
+    const overlay = getModalOverlay();
+
+    if (!overlay) {
+      return null;
+    }
+
+    return createRect(overlay.scrollLeft, overlay.scrollTop, overlay.clientWidth, overlay.clientHeight);
+  });
+
+  const getVisibleDetailsInsertionRect = useEffectEvent((width: number, height: number) => {
+    const viewport = getVisibleModalViewport();
+
+    if (!viewport) {
+      return createRect(24, 24, width, height);
+    }
+
+    const minLeft = viewport.left + DETAILS_INSERT_VIEWPORT_PADDING;
+    const minTop = viewport.top + DETAILS_INSERT_VIEWPORT_PADDING;
+    const maxLeft = Math.max(minLeft, viewport.right - width - DETAILS_INSERT_VIEWPORT_PADDING);
+    const maxTop = Math.max(minTop, viewport.bottom - height - DETAILS_INSERT_VIEWPORT_PADDING);
+    let centerX = viewport.left + (viewport.right - viewport.left) / 2;
+    let centerY = viewport.top + (viewport.bottom - viewport.top) / 2;
+    const pointerPoint = lastDetailsPointerRef.current;
+
+    if (
+      pointerPoint &&
+      pointerPoint.x >= minLeft &&
+      pointerPoint.x <= viewport.right - DETAILS_INSERT_VIEWPORT_PADDING &&
+      pointerPoint.y >= minTop &&
+      pointerPoint.y <= viewport.bottom - DETAILS_INSERT_VIEWPORT_PADDING
+    ) {
+      centerX = pointerPoint.x;
+      centerY = pointerPoint.y;
+    }
+
+    return createRect(
+      Math.round(clamp(centerX - width / 2, minLeft, maxLeft)),
+      Math.round(clamp(centerY - height / 2, minTop, maxTop)),
+      width,
+      height,
+    );
+  });
+
+  const shouldEnsureModalRectVisible = useEffectEvent((rect: Rect, margin = 40) => {
+    const viewport = getVisibleModalViewport();
+
+    if (!viewport) {
+      return false;
+    }
+
+    const { deltaX, deltaY } = getRectVisibilityDelta(rect, viewport, margin);
+    return deltaX !== 0 || deltaY !== 0;
   });
 
   const applyRemoteProjectSnapshot = useEffectEvent((project: RemoteProject) => {
@@ -2899,13 +3041,14 @@ export function StudyTreeApp() {
   const createDetailsTextBox = useEffectEvent((cardId: string) => {
     const width = 280;
     const height = 80;
-    const insertionPoint = getDetailsInsertionPoint();
-    const nextRect = createRect(
-      Math.max(16, insertionPoint.x - width / 2),
-      Math.max(24, insertionPoint.y - height / 2),
-      width,
-      height,
-    );
+    const card = cards[cardId];
+
+    if (!card) {
+      return null;
+    }
+
+    const baseRect = getVisibleDetailsInsertionRect(width, height);
+    const nextRect = findAvailableModalRect(card, baseRect);
     const textBoxId = addDetailsTextBox(cardId, {
       x: Math.round(nextRect.left),
       y: Math.round(nextRect.top),
@@ -2915,7 +3058,7 @@ export function StudyTreeApp() {
 
     setSelectedDetailsImageId(null);
     setSelectedDetailsTextBoxId(textBoxId);
-    if (textBoxId) {
+    if (textBoxId && shouldEnsureModalRectVisible(nextRect)) {
       window.requestAnimationFrame(() => {
         ensureModalRectVisible(nextRect);
       });
@@ -3119,6 +3262,13 @@ export function StudyTreeApp() {
     if (closeHoldTimeoutRef.current !== null) {
       window.clearTimeout(closeHoldTimeoutRef.current);
       closeHoldTimeoutRef.current = null;
+    }
+  });
+
+  const clearCardOpenHoldTimer = useEffectEvent(() => {
+    if (cardOpenHoldTimeoutRef.current !== null) {
+      window.clearTimeout(cardOpenHoldTimeoutRef.current);
+      cardOpenHoldTimeoutRef.current = null;
     }
   });
 
@@ -3608,13 +3758,20 @@ export function StudyTreeApp() {
   });
 
   const onCardPointerDown = useEffectEvent((cardId: string, event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 && event.pointerType !== "touch") {
-      return;
-    }
-
     const card = cards[cardId];
 
     if (!card) {
+      return;
+    }
+
+    if (event.button === 1) {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteCard(cardId);
+      return;
+    }
+
+    if (event.button !== 0 && event.pointerType !== "touch") {
       return;
     }
 
@@ -3631,8 +3788,22 @@ export function StudyTreeApp() {
       cameraOriginX: cameraRef.current.x,
       cameraOriginY: cameraRef.current.y,
       hasMoved: false,
+      captureTarget: event.currentTarget,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    clearCardOpenHoldTimer();
+    cardOpenHoldTimeoutRef.current = window.setTimeout(() => {
+      const dragState = dragStateRef.current;
+
+      if (!dragState || dragState.cardId !== cardId || dragState.pointerId !== event.pointerId || dragState.hasMoved) {
+        return;
+      }
+
+      dragState.captureTarget?.releasePointerCapture?.(event.pointerId);
+      dragStateRef.current = null;
+      cardOpenHoldTimeoutRef.current = null;
+      openCard(cardId);
+    }, CARD_OPEN_HOLD_MS);
   });
 
   const onCardPointerMove = useEffectEvent((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -3645,6 +3816,19 @@ export function StudyTreeApp() {
     const card = cards[dragState.cardId];
 
     if (!card) {
+      clearCardOpenHoldTimer();
+      return;
+    }
+
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+
+    if (!dragState.hasMoved && Math.hypot(deltaX, deltaY) >= DRAG_START_DISTANCE) {
+      dragState.hasMoved = true;
+      clearCardOpenHoldTimer();
+    }
+
+    if (!dragState.hasMoved) {
       return;
     }
 
@@ -3652,24 +3836,12 @@ export function StudyTreeApp() {
     let nextCamera = cameraRef.current;
 
     if (rect) {
-      let panX = 0;
-      let panY = 0;
       const leftDistance = event.clientX - rect.left;
       const rightDistance = rect.right - event.clientX;
       const topDistance = event.clientY - rect.top;
       const bottomDistance = rect.bottom - event.clientY;
-
-      if (leftDistance < EDGE_PAN_MARGIN) {
-        panX = EDGE_PAN_MAX_STEP * (1 - clamp(leftDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
-      } else if (rightDistance < EDGE_PAN_MARGIN) {
-        panX = -EDGE_PAN_MAX_STEP * (1 - clamp(rightDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
-      }
-
-      if (topDistance < EDGE_PAN_MARGIN) {
-        panY = EDGE_PAN_MAX_STEP * (1 - clamp(topDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
-      } else if (bottomDistance < EDGE_PAN_MARGIN) {
-        panY = -EDGE_PAN_MAX_STEP * (1 - clamp(bottomDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
-      }
+      const panX = -getEdgePanOffset(leftDistance, rightDistance, MAP_EDGE_PAN_MARGIN, MAP_EDGE_PAN_MAX_STEP);
+      const panY = -getEdgePanOffset(topDistance, bottomDistance, MAP_EDGE_PAN_MARGIN, MAP_EDGE_PAN_MAX_STEP);
 
       if (panX !== 0 || panY !== 0) {
         nextCamera = {
@@ -3680,14 +3852,8 @@ export function StudyTreeApp() {
       }
     }
 
-    const deltaX = event.clientX - dragState.startX;
-    const deltaY = event.clientY - dragState.startY;
     const cameraDeltaX = nextCamera.x - dragState.cameraOriginX;
     const cameraDeltaY = nextCamera.y - dragState.cameraOriginY;
-
-    if (!dragState.hasMoved && Math.hypot(deltaX, deltaY) >= 4) {
-      dragState.hasMoved = true;
-    }
 
     moveCard(
       dragState.cardId,
@@ -3705,14 +3871,9 @@ export function StudyTreeApp() {
       return;
     }
 
-    const shouldOpen = !dragState.hasMoved;
-    const targetCardId = dragState.cardId;
+    clearCardOpenHoldTimer();
     dragStateRef.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
-
-    if (shouldOpen) {
-      openCard(targetCardId);
-    }
   });
 
   const onCardPointerCancel = useEffectEvent((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -3722,6 +3883,7 @@ export function StudyTreeApp() {
       return;
     }
 
+    clearCardOpenHoldTimer();
     dragStateRef.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   });
@@ -4083,8 +4245,9 @@ export function StudyTreeApp() {
     return () => {
       clearUndoTimer();
       clearCloseHoldTimer();
+      clearCardOpenHoldTimer();
     };
-  }, [clearCloseHoldTimer, clearUndoTimer]);
+  }, [clearCardOpenHoldTimer, clearCloseHoldTimer, clearUndoTimer]);
 
   if (bootState !== "ready") {
     return (
@@ -4517,6 +4680,7 @@ export function StudyTreeApp() {
                       setSelectedDetailsTextBoxId(null);
                       setSelectedExerciseReferenceId(null);
                     }}
+                    onDelete={deleteDetailsTable}
                     onMove={moveDetailsTable}
                     onUpdateCell={updateDetailsTableCell}
                     onResizeColumn={resizeDetailsTableColumn}
@@ -4549,6 +4713,10 @@ export function StudyTreeApp() {
                     setSelectedExerciseReferenceId(null);
                     setSelectedDetailsTextBoxId(null);
                     setSelectedDetailsImageId(imageId);
+                  }}
+                  onDelete={(cardId, imageId) => {
+                    deleteDetailsImage(cardId, imageId);
+                    setSelectedDetailsImageId(null);
                   }}
                   onMove={moveDetailsImage}
                   onResize={resizeDetailsImage}
@@ -4587,6 +4755,10 @@ export function StudyTreeApp() {
                     setSelectedDetailsImageId(null);
                     setSelectedDetailsTextBoxId(null);
                     setSelectedExerciseReferenceId(referenceId);
+                  }}
+                  onDelete={(cardId, referenceId) => {
+                    deleteExerciseReference(cardId, referenceId);
+                    setSelectedExerciseReferenceId(null);
                   }}
                   onOpenReference={openExerciseReference}
                   onMove={moveExerciseReference}
