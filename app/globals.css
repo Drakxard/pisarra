@@ -666,7 +666,7 @@ img {
   background: #ecd3ac;
   overflow: auto;
   overscroll-behavior: contain;
-  cursor: grab;
+  cursor: default;
 }
 
 .card-modal {

@@ -145,44 +145,63 @@ type DetailsTableInteraction =
 type DetailsImageInteraction =
   | {
       type: "move";
+      pointerId: number;
       imageId: string;
       startX: number;
       startY: number;
       originX: number;
       originY: number;
+      originScrollLeft: number;
+      originScrollTop: number;
+      captureTarget: HTMLDivElement | null;
+      hasMoved: boolean;
     }
   | {
       type: "resize";
+      pointerId: number;
       imageId: string;
       startX: number;
       startY: number;
       originWidth: number;
       originHeight: number;
+      originScrollLeft: number;
+      originScrollTop: number;
+      captureTarget: HTMLElement | null;
     }
   | {
       type: "rotate";
+      pointerId: number;
       imageId: string;
       centerX: number;
       centerY: number;
+      captureTarget: HTMLElement | null;
     };
 
 type DetailsTextBoxInteraction =
   | {
       type: "move";
+      pointerId: number;
       textBoxId: string;
       startX: number;
       startY: number;
       originX: number;
       originY: number;
+      originScrollLeft: number;
+      originScrollTop: number;
+      captureTarget: HTMLDivElement | null;
       hasMoved: boolean;
     }
   | {
       type: "resize";
+      pointerId: number;
       textBoxId: string;
       startX: number;
       startY: number;
       originWidth: number;
       originHeight: number;
+      originScrollLeft: number;
+      originScrollTop: number;
+      captureTarget: HTMLButtonElement | null;
     };
 
 type ExerciseReferenceInteraction =
@@ -196,6 +215,13 @@ type ExerciseReferenceInteraction =
       hasMoved: boolean;
     }
   | null;
+
+type ViewportAutoPanResult = {
+  deltaX: number;
+  deltaY: number;
+  scrollLeft: number;
+  scrollTop: number;
+};
 
 const TEXT_BOX_FONT_SIZES: Record<DetailsTextBox["fontSize"], { label: string; className: string }> = {
   small: { label: "Pequeno", className: "is-small" },
@@ -511,6 +537,33 @@ function isEditableTarget(target: EventTarget | null) {
 
   const tagName = element.tagName.toLowerCase();
   return tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+const MODAL_PAN_BLOCKER_SELECTOR =
+  ".details-image-object, .details-text-box, .exercise-reference-object, .details-table-object, .details-table-controls, button, a";
+
+function isEditableElementOrAncestor(target: EventTarget | null) {
+  let element = target as HTMLElement | null;
+
+  while (element) {
+    if (isEditableTarget(element)) {
+      return true;
+    }
+
+    element = element.parentElement;
+  }
+
+  return false;
+}
+
+function shouldStartModalPan(target: EventTarget | null) {
+  const element = target as HTMLElement | null;
+
+  if (!element || isEditableElementOrAncestor(element)) {
+    return false;
+  }
+
+  return !element.closest(MODAL_PAN_BLOCKER_SELECTOR);
 }
 
 function blurActiveEditableElement() {
@@ -1095,6 +1148,8 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
   onMove,
   onResize,
   onRotate,
+  onAutoPan,
+  getViewportScroll,
 }: {
   cardId: string;
   images: DetailsImage[];
@@ -1103,6 +1158,8 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
   onMove: (cardId: string, imageId: string, position: { x: number; y: number }) => void;
   onResize: (cardId: string, imageId: string, size: { width: number; height: number }) => void;
   onRotate: (cardId: string, imageId: string, rotation: number) => void;
+  onAutoPan: (clientX: number, clientY: number) => ViewportAutoPanResult;
+  getViewportScroll: () => { scrollLeft: number; scrollTop: number };
 }) {
   const interactionRef = useRef<DetailsImageInteraction | null>(null);
 
@@ -1110,24 +1167,42 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
     const onPointerMove = (event: PointerEvent) => {
       const interaction = interactionRef.current;
 
-      if (!interaction) {
+      if (!interaction || interaction.pointerId !== event.pointerId) {
         return;
       }
 
       event.preventDefault();
+      const autoPan = onAutoPan(event.clientX, event.clientY);
 
       if (interaction.type === "move") {
+        const deltaX = event.clientX - interaction.startX;
+        const deltaY = event.clientY - interaction.startY;
+
+        if (!interaction.hasMoved && Math.hypot(deltaX, deltaY) >= 4) {
+          interaction.hasMoved = true;
+        }
+
+        if (!interaction.hasMoved) {
+          return;
+        }
+
         onMove(cardId, interaction.imageId, {
-          x: interaction.originX + event.clientX - interaction.startX,
-          y: interaction.originY + event.clientY - interaction.startY,
+          x: interaction.originX + deltaX + (autoPan.scrollLeft - interaction.originScrollLeft),
+          y: interaction.originY + deltaY + (autoPan.scrollTop - interaction.originScrollTop),
         });
         return;
       }
 
       if (interaction.type === "resize") {
         onResize(cardId, interaction.imageId, {
-          width: interaction.originWidth + event.clientX - interaction.startX,
-          height: interaction.originHeight + event.clientY - interaction.startY,
+          width:
+            interaction.originWidth +
+            (event.clientX - interaction.startX) +
+            (autoPan.scrollLeft - interaction.originScrollLeft),
+          height:
+            interaction.originHeight +
+            (event.clientY - interaction.startY) +
+            (autoPan.scrollTop - interaction.originScrollTop),
         });
         return;
       }
@@ -1139,7 +1214,14 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
       onRotate(cardId, interaction.imageId, angle + 90);
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (event: PointerEvent) => {
+      const interaction = interactionRef.current;
+
+      if (!interaction || interaction.pointerId !== event.pointerId) {
+        return;
+      }
+
+      interaction.captureTarget?.releasePointerCapture?.(event.pointerId);
       interactionRef.current = null;
     };
 
@@ -1152,7 +1234,7 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
     };
-  }, [cardId, onMove, onResize, onRotate]);
+  }, [cardId, onAutoPan, onMove, onResize, onRotate]);
 
   if (images.length === 0) {
     return null;
@@ -1175,15 +1257,23 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
               transform: `rotate(${image.rotation}deg)`,
             }}
             onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
               onSelect(image.id);
               interactionRef.current = {
                 type: "move",
+                pointerId: event.pointerId,
                 imageId: image.id,
                 startX: event.clientX,
                 startY: event.clientY,
                 originX: image.x,
                 originY: image.y,
+                originScrollLeft: getViewportScroll().scrollLeft,
+                originScrollTop: getViewportScroll().scrollTop,
+                captureTarget: event.currentTarget,
+                hasMoved: false,
               };
+              event.currentTarget.setPointerCapture?.(event.pointerId);
             }}
           >
             {image.previewUrl ? (
@@ -1206,10 +1296,13 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
 
                     interactionRef.current = {
                       type: "rotate",
+                      pointerId: event.pointerId,
                       imageId: image.id,
                       centerX: rect.left + rect.width / 2,
                       centerY: rect.top + rect.height / 2,
+                      captureTarget: event.currentTarget,
                     };
+                    event.currentTarget.setPointerCapture?.(event.pointerId);
                   }}
                 />
                 <button
@@ -1221,12 +1314,17 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
                     event.stopPropagation();
                     interactionRef.current = {
                       type: "resize",
+                      pointerId: event.pointerId,
                       imageId: image.id,
                       startX: event.clientX,
                       startY: event.clientY,
                       originWidth: image.width,
                       originHeight: image.height,
+                      originScrollLeft: getViewportScroll().scrollLeft,
+                      originScrollTop: getViewportScroll().scrollTop,
+                      captureTarget: event.currentTarget,
                     };
+                    event.currentTarget.setPointerCapture?.(event.pointerId);
                   }}
                 />
               </>
@@ -1244,15 +1342,21 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
   selectedTextBoxId,
   onSelect,
   onUpdateContent,
+  onDelete,
+  onFinishEditing,
   onStyle,
   onMove,
   onResize,
+  onAutoPan,
+  getViewportScroll,
 }: {
   cardId: string;
   textBoxes: DetailsTextBox[];
   selectedTextBoxId: string | null;
   onSelect: (textBoxId: string | null) => void;
   onUpdateContent: (cardId: string, textBoxId: string, text: string, richText: string | null) => void;
+  onDelete: (cardId: string, textBoxId: string) => void;
+  onFinishEditing?: () => void;
   onStyle: (
     cardId: string,
     textBoxId: string,
@@ -1260,6 +1364,8 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
   ) => void;
   onMove: (cardId: string, textBoxId: string, position: { x: number; y: number }) => void;
   onResize: (cardId: string, textBoxId: string, size: { width: number; height: number }) => void;
+  onAutoPan: (clientX: number, clientY: number) => ViewportAutoPanResult;
+  getViewportScroll: () => { scrollLeft: number; scrollTop: number };
 }) {
   const interactionRef = useRef<DetailsTextBoxInteraction | null>(null);
   const editingEditorRef = useRef<HTMLDivElement | null>(null);
@@ -1269,11 +1375,27 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
   const [editingDraft, setEditingDraft] = useState("");
   const [openMenu, setOpenMenu] = useState<"color" | "size" | "align" | null>(null);
 
-  const persistTextBoxContent = useEffectEvent((textBoxId: string, editor: HTMLDivElement) => {
+  const syncTextBoxContent = useEffectEvent((textBoxId: string, editor: HTMLDivElement) => {
     const nextText = normalizeMultilineText(editor.innerText ?? "");
     const nextRichText = normalizeRichTextHtml(editor.innerHTML ?? "");
     setEditingDraft(nextText);
     onUpdateContent(cardId, textBoxId, nextText, nextRichText || null);
+  });
+
+  const finishTextBoxEditing = useEffectEvent((textBoxId: string, editor: HTMLDivElement) => {
+    const nextText = normalizeMultilineText(editor.innerText ?? "");
+    const nextRichText = normalizeRichTextHtml(editor.innerHTML ?? "");
+
+    if (nextText.trim().length === 0) {
+      onDelete(cardId, textBoxId);
+      onSelect(null);
+      setEditingDraft("");
+      return;
+    }
+
+    setEditingDraft(nextText);
+    onUpdateContent(cardId, textBoxId, nextText, nextRichText || null);
+    onFinishEditing?.();
   });
 
   const applyLinkToSelection = useEffectEvent((textBox: DetailsTextBox) => {
@@ -1297,7 +1419,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
     }
 
     document.execCommand("createLink", false, url);
-    persistTextBoxContent(textBox.id, editor);
+    syncTextBoxContent(textBox.id, editor);
   });
 
   useEffect(() => {
@@ -1306,6 +1428,22 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
       editingPointRef.current = null;
     }
   }, [editingTextBoxId, selectedTextBoxId]);
+
+  useEffect(() => {
+    if (editingTextBoxId || !selectedTextBoxId) {
+      return;
+    }
+
+    const selectedTextBox = textBoxes.find((textBox) => textBox.id === selectedTextBoxId);
+
+    if (!selectedTextBox || selectedTextBox.text.trim().length > 0) {
+      return;
+    }
+
+    setEditingDraft("");
+    editingPointRef.current = null;
+    setEditingTextBoxId(selectedTextBox.id);
+  }, [editingTextBoxId, selectedTextBoxId, textBoxes]);
 
   useEffect(() => {
     if (!editingTextBoxId) {
@@ -1372,11 +1510,12 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
     const onPointerMove = (event: PointerEvent) => {
       const interaction = interactionRef.current;
 
-      if (!interaction) {
+      if (!interaction || interaction.pointerId !== event.pointerId) {
         return;
       }
 
       event.preventDefault();
+      const autoPan = onAutoPan(event.clientX, event.clientY);
 
       if (interaction.type === "move") {
         const deltaX = event.clientX - interaction.startX;
@@ -1391,19 +1530,32 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
         }
 
         onMove(cardId, interaction.textBoxId, {
-          x: interaction.originX + deltaX,
-          y: interaction.originY + deltaY,
+          x: interaction.originX + deltaX + (autoPan.scrollLeft - interaction.originScrollLeft),
+          y: interaction.originY + deltaY + (autoPan.scrollTop - interaction.originScrollTop),
         });
         return;
       }
 
       onResize(cardId, interaction.textBoxId, {
-        width: interaction.originWidth + event.clientX - interaction.startX,
-        height: interaction.originHeight + event.clientY - interaction.startY,
+        width:
+          interaction.originWidth +
+          (event.clientX - interaction.startX) +
+          (autoPan.scrollLeft - interaction.originScrollLeft),
+        height:
+          interaction.originHeight +
+          (event.clientY - interaction.startY) +
+          (autoPan.scrollTop - interaction.originScrollTop),
       });
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (event: PointerEvent) => {
+      const interaction = interactionRef.current;
+
+      if (!interaction || interaction.pointerId !== event.pointerId) {
+        return;
+      }
+
+      interaction.captureTarget?.releasePointerCapture?.(event.pointerId);
       interactionRef.current = null;
     };
 
@@ -1416,7 +1568,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
     };
-  }, [cardId, onMove, onResize]);
+  }, [cardId, onAutoPan, onMove, onResize]);
 
   if (textBoxes.length === 0) {
     return null;
@@ -1464,15 +1616,22 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                 return;
               }
 
+              event.preventDefault();
+              event.stopPropagation();
               interactionRef.current = {
                 type: "move",
+                pointerId: event.pointerId,
                 textBoxId: textBox.id,
                 startX: event.clientX,
                 startY: event.clientY,
                 originX: textBox.x,
                 originY: textBox.y,
+                originScrollLeft: getViewportScroll().scrollLeft,
+                originScrollTop: getViewportScroll().scrollTop,
+                captureTarget: event.currentTarget,
                 hasMoved: false,
               };
+              event.currentTarget.setPointerCapture?.(event.pointerId);
             }}
           >
             {isSelected ? (
@@ -1602,7 +1761,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                 data-placeholder="Agregar texto"
                 style={textBoxContentStyle}
                 onInput={(event) => {
-                  persistTextBoxContent(textBox.id, event.currentTarget);
+                  syncTextBoxContent(textBox.id, event.currentTarget);
                 }}
                 onBlur={(event) => {
                   const nextTarget = event.relatedTarget as Node | null;
@@ -1614,7 +1773,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
 
                   setEditingTextBoxId((currentId) => (currentId === textBox.id ? null : currentId));
                   editingPointRef.current = null;
-                  persistTextBoxContent(textBox.id, event.currentTarget);
+                  finishTextBoxEditing(textBox.id, event.currentTarget);
                 }}
               />
             ) : (
@@ -1657,12 +1816,17 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                   event.stopPropagation();
                   interactionRef.current = {
                     type: "resize",
+                    pointerId: event.pointerId,
                     textBoxId: textBox.id,
                     startX: event.clientX,
                     startY: event.clientY,
                     originWidth: textBox.width,
                     originHeight: textBox.height,
+                    originScrollLeft: getViewportScroll().scrollLeft,
+                    originScrollTop: getViewportScroll().scrollTop,
+                    captureTarget: event.currentTarget,
                   };
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
                 }}
               />
             ) : null}
@@ -2349,6 +2513,62 @@ export function StudyTreeApp() {
     return modalBody instanceof HTMLElement ? modalBody : null;
   };
 
+  const getModalViewportScroll = useEffectEvent(() => {
+    const overlay = getModalOverlay();
+    return {
+      scrollLeft: overlay?.scrollLeft ?? 0,
+      scrollTop: overlay?.scrollTop ?? 0,
+    };
+  });
+
+  const autoPanModalViewport = useEffectEvent((clientX: number, clientY: number): ViewportAutoPanResult => {
+    const overlay = getModalOverlay();
+
+    if (!overlay) {
+      return {
+        deltaX: 0,
+        deltaY: 0,
+        scrollLeft: 0,
+        scrollTop: 0,
+      };
+    }
+
+    const rect = overlay.getBoundingClientRect();
+    let panX = 0;
+    let panY = 0;
+    const leftDistance = clientX - rect.left;
+    const rightDistance = rect.right - clientX;
+    const topDistance = clientY - rect.top;
+    const bottomDistance = rect.bottom - clientY;
+
+    if (leftDistance < EDGE_PAN_MARGIN) {
+      panX = -EDGE_PAN_MAX_STEP * (1 - clamp(leftDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
+    } else if (rightDistance < EDGE_PAN_MARGIN) {
+      panX = EDGE_PAN_MAX_STEP * (1 - clamp(rightDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
+    }
+
+    if (topDistance < EDGE_PAN_MARGIN) {
+      panY = -EDGE_PAN_MAX_STEP * (1 - clamp(topDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
+    } else if (bottomDistance < EDGE_PAN_MARGIN) {
+      panY = EDGE_PAN_MAX_STEP * (1 - clamp(bottomDistance, 0, EDGE_PAN_MARGIN) / EDGE_PAN_MARGIN);
+    }
+
+    const previousScrollLeft = overlay.scrollLeft;
+    const previousScrollTop = overlay.scrollTop;
+
+    if (panX !== 0 || panY !== 0) {
+      overlay.scrollLeft = Math.max(0, overlay.scrollLeft + panX);
+      overlay.scrollTop = Math.max(0, overlay.scrollTop + panY);
+    }
+
+    return {
+      deltaX: overlay.scrollLeft - previousScrollLeft,
+      deltaY: overlay.scrollTop - previousScrollTop,
+      scrollLeft: overlay.scrollLeft,
+      scrollTop: overlay.scrollTop,
+    };
+  });
+
   const resetModalViewportToContent = useEffectEvent(() => {
     const overlay = getModalOverlay();
     const body = getModalBody();
@@ -2556,6 +2776,20 @@ export function StudyTreeApp() {
     }
   });
 
+  const flushRemoteProjectNow = useEffectEvent(() => {
+    if (!identity || bootState !== "ready" || isApplyingRemoteSnapshotRef.current) {
+      return;
+    }
+
+    const signature = JSON.stringify(useTreeStore.getState().getProjectSnapshot());
+
+    if (signature === lastPersistedProjectSignatureRef.current) {
+      return;
+    }
+
+    void saveRemoteProject();
+  });
+
   const sendPresence = useEffectEvent(
     (
       cursor: PresenceState["cursor"],
@@ -2633,6 +2867,7 @@ export function StudyTreeApp() {
       setSelectedDetailsImageId(imageId);
       setShowTableMenu(false);
       if (imageId) {
+        void flushRemoteProjectNow();
         window.requestAnimationFrame(() => {
           ensureModalRectVisible(nextRect);
         });
@@ -4078,14 +4313,7 @@ export function StudyTreeApp() {
                 return;
               }
 
-              const target = event.target as HTMLElement | null;
-
-              if (
-                !target ||
-                target.closest(
-                  ".details-image-object, .details-text-box, .exercise-reference-object, .details-table-object, textarea, input, button, a, [contenteditable=\"true\"]",
-                )
-              ) {
+              if (!shouldStartModalPan(event.target)) {
                 return;
               }
 
@@ -4314,6 +4542,8 @@ export function StudyTreeApp() {
                   onMove={moveDetailsImage}
                   onResize={resizeDetailsImage}
                   onRotate={rotateDetailsImage}
+                  onAutoPan={autoPanModalViewport}
+                  getViewportScroll={getModalViewportScroll}
                 />
                 <DetailsTextBoxLayer
                   cardId={openedCard.id}
@@ -4327,9 +4557,13 @@ export function StudyTreeApp() {
                     setSelectedDetailsTextBoxId(textBoxId);
                   }}
                   onUpdateContent={updateDetailsTextBoxContent}
+                  onDelete={deleteDetailsTextBox}
+                  onFinishEditing={flushRemoteProjectNow}
                   onStyle={updateDetailsTextBoxStyle}
                   onMove={moveDetailsTextBox}
                   onResize={resizeDetailsTextBox}
+                  onAutoPan={autoPanModalViewport}
+                  getViewportScroll={getModalViewportScroll}
                 />
                 <ExerciseReferencesLayer
                   cardId={openedCard.id}
