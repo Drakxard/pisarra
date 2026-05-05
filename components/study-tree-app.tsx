@@ -518,26 +518,65 @@ async function fetchRemoteProject() {
   return (await response.json()) as RemoteProject;
 }
 
+type AssetUploadTicket = {
+  path: string;
+  contentType: string;
+  uploadUrl: string;
+};
+
 async function uploadPendingAssets(assets: PendingImageAsset[]) {
   if (assets.length === 0) {
     return;
   }
 
-  const formData = new FormData();
-
-  for (const asset of assets) {
-    formData.append("path", asset.path);
-    formData.append("file", asset.blob);
-  }
-
   const response = await fetch("/api/assets", {
     method: "POST",
-    body: formData,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      assets: assets.map((asset) => ({
+        path: asset.path,
+        contentType: asset.blob.type || undefined,
+      })),
+    }),
   });
 
   if (!response.ok) {
     throw new Error("No se pudieron subir las imagenes pendientes.");
   }
+
+  const result = (await response.json()) as {
+    uploads?: AssetUploadTicket[];
+  };
+
+  if (!Array.isArray(result.uploads) || result.uploads.length !== assets.length) {
+    throw new Error("No se pudieron preparar las imagenes pendientes.");
+  }
+
+  const uploadsByPath = new Map(result.uploads.map((upload) => [upload.path, upload]));
+
+  await Promise.all(
+    assets.map(async (asset) => {
+      const upload = uploadsByPath.get(asset.path);
+
+      if (!upload) {
+        throw new Error("Falta la firma de un asset pendiente.");
+      }
+
+      const uploadResponse = await fetch(upload.uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": upload.contentType,
+        },
+        body: asset.blob,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error("No se pudieron subir las imagenes pendientes.");
+      }
+    }),
+  );
 }
 
 function isEditableTarget(target: EventTarget | null) {

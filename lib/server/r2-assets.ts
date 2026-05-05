@@ -9,6 +9,7 @@ import {
   S3ServiceException,
 } from "@aws-sdk/client-s3";
 import type { PutObjectCommandInput } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const ASSETS_PREFIX = "study-assets";
 const LOCAL_ASSETS_ROOT = path.join(process.cwd(), ASSETS_PREFIX);
@@ -106,6 +107,32 @@ export async function putAsset({
   );
 
   return key;
+}
+
+export async function createAssetUploadUrl({
+  assetPath,
+  contentType,
+  expiresInSeconds = 300,
+}: {
+  assetPath: string;
+  contentType?: string;
+  expiresInSeconds?: number;
+}) {
+  const key = normalizeAssetKey(assetPath);
+  const resolvedContentType = contentType ?? getAssetContentType(key);
+  const command = new PutObjectCommand({
+    Bucket: getBucketName(),
+    Key: key,
+    ContentType: resolvedContentType,
+  });
+
+  return {
+    key,
+    contentType: resolvedContentType,
+    uploadUrl: await getSignedUrl(getR2Client(), command, {
+      expiresIn: expiresInSeconds,
+    }),
+  };
 }
 
 export async function getAsset(assetPath: string) {
