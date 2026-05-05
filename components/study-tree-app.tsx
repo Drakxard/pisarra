@@ -60,8 +60,8 @@ const CARD_FALLBACK_HEIGHT = 220;
 const KEYBOARD_MOVE_STEP = 24;
 const START_DETAILS_EDIT_EVENT = "study-tree:start-details-edit";
 const DRAG_START_DISTANCE = 12;
-const MAP_EDGE_PAN_MARGIN = 96;
-const MAP_EDGE_PAN_MAX_STEP = 22;
+const MAP_EDGE_PAN_MARGIN = 128;
+const MAP_EDGE_PAN_MAX_STEP = 14;
 const MODAL_EDGE_PAN_MARGIN = 16;
 const MODAL_EDGE_PAN_MAX_STEP = 3;
 const DETAILS_INSERT_VIEWPORT_PADDING = 32;
@@ -99,6 +99,8 @@ type DragState = {
   pointerId: number;
   startX: number;
   startY: number;
+  currentX: number;
+  currentY: number;
   originX: number;
   originY: number;
   cameraOriginX: number;
@@ -457,6 +459,33 @@ function getEdgePanOffset(distanceFromStart: number, distanceFromEnd: number, ma
 
   if (distanceFromEnd < margin) {
     return maxStep * (1 - clamp(distanceFromEnd, 0, margin) / margin);
+  }
+
+  return 0;
+}
+
+function getSmoothMapEdgePanOffset(
+  distanceFromStart: number,
+  distanceFromEnd: number,
+  margin: number,
+  maxStep: number,
+) {
+  const getDirectionalOffset = (distance: number, direction: -1 | 1) => {
+    if (distance >= margin) {
+      return 0;
+    }
+
+    const proximity = 1 - clamp(distance, 0, margin) / margin;
+    const easedProximity = proximity * proximity;
+    return direction * maxStep * easedProximity;
+  };
+
+  if (distanceFromStart < margin) {
+    return getDirectionalOffset(distanceFromStart, -1);
+  }
+
+  if (distanceFromEnd < margin) {
+    return getDirectionalOffset(distanceFromEnd, 1);
   }
 
   return 0;
@@ -2596,6 +2625,7 @@ export function StudyTreeApp() {
   const undoTimeoutRef = useRef<number | null>(null);
   const exerciseFeedbackTimeoutRef = useRef<number | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const dragAutoPanFrameRef = useRef<number | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const modalPanStateRef = useRef<ScrollPanState | null>(null);
   const modalInitialFocusSessionRef = useRef<string | null>(null);
@@ -2655,6 +2685,81 @@ export function StudyTreeApp() {
     cameraRef.current = nextCamera;
     setCameraState(nextCamera);
   };
+
+  const stopCardDragAutoPan = useEffectEvent(() => {
+    if (dragAutoPanFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragAutoPanFrameRef.current);
+      dragAutoPanFrameRef.current = null;
+    }
+  });
+
+  const syncDraggedCardPosition = useEffectEvent((dragState: DragState) => {
+    const card = cards[dragState.cardId];
+
+    if (!card) {
+      stopCardDragAutoPan();
+      dragStateRef.current = null;
+      return;
+    }
+
+    const deltaX = dragState.currentX - dragState.startX;
+    const deltaY = dragState.currentY - dragState.startY;
+    const cameraDeltaX = cameraRef.current.x - dragState.cameraOriginX;
+    const cameraDeltaY = cameraRef.current.y - dragState.cameraOriginY;
+
+    moveCard(dragState.cardId, {
+      x: dragState.originX + deltaX - cameraDeltaX,
+      y: dragState.originY + deltaY - cameraDeltaY,
+    });
+  });
+
+  const runCardDragAutoPanFrame = useEffectEvent(() => {
+    const dragState = dragStateRef.current;
+
+    if (!dragState || !dragState.hasMoved) {
+      dragAutoPanFrameRef.current = null;
+      return;
+    }
+
+    const rect = stageRef.current?.getBoundingClientRect();
+
+    if (rect) {
+      const leftDistance = dragState.currentX - rect.left;
+      const rightDistance = rect.right - dragState.currentX;
+      const topDistance = dragState.currentY - rect.top;
+      const bottomDistance = rect.bottom - dragState.currentY;
+      const panX = -getSmoothMapEdgePanOffset(
+        leftDistance,
+        rightDistance,
+        MAP_EDGE_PAN_MARGIN,
+        MAP_EDGE_PAN_MAX_STEP,
+      );
+      const panY = -getSmoothMapEdgePanOffset(
+        topDistance,
+        bottomDistance,
+        MAP_EDGE_PAN_MARGIN,
+        MAP_EDGE_PAN_MAX_STEP,
+      );
+
+      if (panX !== 0 || panY !== 0) {
+        setCamera({
+          x: cameraRef.current.x + panX,
+          y: cameraRef.current.y + panY,
+        });
+      }
+    }
+
+    syncDraggedCardPosition(dragState);
+    dragAutoPanFrameRef.current = window.requestAnimationFrame(runCardDragAutoPanFrame);
+  });
+
+  const ensureCardDragAutoPan = useEffectEvent(() => {
+    if (dragAutoPanFrameRef.current !== null) {
+      return;
+    }
+
+    dragAutoPanFrameRef.current = window.requestAnimationFrame(runCardDragAutoPanFrame);
+  });
 
   const getModalOverlay = () => {
     const overlay = stageRef.current?.querySelector(".card-modal-overlay");
@@ -3812,6 +3917,8 @@ export function StudyTreeApp() {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
       originX: card.position.x,
       originY: card.position.y,
       cameraOriginX: cameraRef.current.x,
@@ -3831,50 +3938,26 @@ export function StudyTreeApp() {
     const card = cards[dragState.cardId];
 
     if (!card) {
+      stopCardDragAutoPan();
+      dragStateRef.current = null;
       return;
     }
 
-    const deltaX = event.clientX - dragState.startX;
-    const deltaY = event.clientY - dragState.startY;
+    dragState.currentX = event.clientX;
+    dragState.currentY = event.clientY;
+
+    const deltaX = dragState.currentX - dragState.startX;
+    const deltaY = dragState.currentY - dragState.startY;
 
     if (!dragState.hasMoved && Math.hypot(deltaX, deltaY) >= DRAG_START_DISTANCE) {
       dragState.hasMoved = true;
+      ensureCardDragAutoPan();
     }
 
     if (!dragState.hasMoved) {
       return;
     }
-
-    const rect = stageRef.current?.getBoundingClientRect();
-    let nextCamera = cameraRef.current;
-
-    if (rect) {
-      const leftDistance = event.clientX - rect.left;
-      const rightDistance = rect.right - event.clientX;
-      const topDistance = event.clientY - rect.top;
-      const bottomDistance = rect.bottom - event.clientY;
-      const panX = -getEdgePanOffset(leftDistance, rightDistance, MAP_EDGE_PAN_MARGIN, MAP_EDGE_PAN_MAX_STEP);
-      const panY = -getEdgePanOffset(topDistance, bottomDistance, MAP_EDGE_PAN_MARGIN, MAP_EDGE_PAN_MAX_STEP);
-
-      if (panX !== 0 || panY !== 0) {
-        nextCamera = {
-          x: cameraRef.current.x + panX,
-          y: cameraRef.current.y + panY,
-        };
-        setCamera(nextCamera);
-      }
-    }
-
-    const cameraDeltaX = nextCamera.x - dragState.cameraOriginX;
-    const cameraDeltaY = nextCamera.y - dragState.cameraOriginY;
-
-    moveCard(
-      dragState.cardId,
-      {
-        x: dragState.originX + deltaX - cameraDeltaX,
-        y: dragState.originY + deltaY - cameraDeltaY,
-      },
-    );
+    syncDraggedCardPosition(dragState);
   });
 
   const onCardPointerUp = useEffectEvent((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -3886,6 +3969,7 @@ export function StudyTreeApp() {
 
     const shouldOpen = !dragState.hasMoved;
     const targetCardId = dragState.cardId;
+    stopCardDragAutoPan();
     dragStateRef.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
 
@@ -3901,6 +3985,7 @@ export function StudyTreeApp() {
       return;
     }
 
+    stopCardDragAutoPan();
     dragStateRef.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   });
@@ -3931,6 +4016,14 @@ export function StudyTreeApp() {
 
     return () => {
       observer.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (dragAutoPanFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragAutoPanFrameRef.current);
+      }
     };
   }, []);
 
