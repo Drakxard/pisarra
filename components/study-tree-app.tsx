@@ -60,8 +60,8 @@ const CARD_FALLBACK_HEIGHT = 220;
 const KEYBOARD_MOVE_STEP = 24;
 const START_DETAILS_EDIT_EVENT = "study-tree:start-details-edit";
 const DRAG_START_DISTANCE = 12;
-const MAP_EDGE_PAN_MARGIN = 20;
-const MAP_EDGE_PAN_MAX_STEP = 5;
+const MAP_EDGE_PAN_MARGIN = 96;
+const MAP_EDGE_PAN_MAX_STEP = 22;
 const MODAL_EDGE_PAN_MARGIN = 16;
 const MODAL_EDGE_PAN_MAX_STEP = 3;
 const DETAILS_INSERT_VIEWPORT_PADDING = 32;
@@ -1104,6 +1104,13 @@ const DetailsTableEditor = memo(function DetailsTableEditor({
           return;
         }
 
+        if (event.detail >= 2) {
+          interactionRef.current = null;
+          return;
+        }
+
+        event.stopPropagation();
+
         interactionRef.current = {
           type: "move",
           pointerId: event.pointerId,
@@ -1715,6 +1722,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
             }}
             onPointerDown={(event) => {
               const target = event.target as HTMLElement | null;
+              const onDisplay = Boolean(target?.closest(".details-text-box-display"));
 
               if (event.button === 1) {
                 if (target?.closest(".details-text-box-editor")) {
@@ -1739,15 +1747,16 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
               onSelect(textBox.id);
 
               if (target?.closest("a")) {
+                event.stopPropagation();
                 return;
               }
 
-              if (event.detail >= 2 && target?.closest(".details-text-box-display")) {
+              if (event.detail >= 2 && onDisplay) {
                 interactionRef.current = null;
+                event.stopPropagation();
                 return;
               }
 
-              event.preventDefault();
               event.stopPropagation();
               interactionRef.current = {
                 type: "move",
@@ -1759,10 +1768,9 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                 originY: textBox.y,
                 originScrollLeft: getViewportScroll().scrollLeft,
                 originScrollTop: getViewportScroll().scrollTop,
-                captureTarget: event.currentTarget,
+                captureTarget: null,
                 hasMoved: false,
               };
-              event.currentTarget.setPointerCapture?.(event.pointerId);
             }}
           >
             {isSelected ? (
@@ -1918,11 +1926,6 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
                   const anchor = (event.target as HTMLElement | null)?.closest("a");
 
                   if (!anchor) {
-                    if (event.detail >= 2) {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      beginTextBoxEditing(textBox, { x: event.clientX, y: event.clientY });
-                    }
                     return;
                   }
 
