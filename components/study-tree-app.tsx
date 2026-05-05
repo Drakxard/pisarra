@@ -1172,7 +1172,6 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
       }
 
       event.preventDefault();
-      const autoPan = onAutoPan(event.clientX, event.clientY);
 
       if (interaction.type === "move") {
         const deltaX = event.clientX - interaction.startX;
@@ -1186,6 +1185,7 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
           return;
         }
 
+        const autoPan = onAutoPan(event.clientX, event.clientY);
         onMove(cardId, interaction.imageId, {
           x: interaction.originX + deltaX + (autoPan.scrollLeft - interaction.originScrollLeft),
           y: interaction.originY + deltaY + (autoPan.scrollTop - interaction.originScrollTop),
@@ -1193,6 +1193,7 @@ const DetailsImageLayer = memo(function DetailsImageLayer({
         return;
       }
 
+      const autoPan = onAutoPan(event.clientX, event.clientY);
       if (interaction.type === "resize") {
         onResize(cardId, interaction.imageId, {
           width:
@@ -1515,7 +1516,6 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
       }
 
       event.preventDefault();
-      const autoPan = onAutoPan(event.clientX, event.clientY);
 
       if (interaction.type === "move") {
         const deltaX = event.clientX - interaction.startX;
@@ -1529,6 +1529,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
           return;
         }
 
+        const autoPan = onAutoPan(event.clientX, event.clientY);
         onMove(cardId, interaction.textBoxId, {
           x: interaction.originX + deltaX + (autoPan.scrollLeft - interaction.originScrollLeft),
           y: interaction.originY + deltaY + (autoPan.scrollTop - interaction.originScrollTop),
@@ -1536,6 +1537,7 @@ const DetailsTextBoxLayer = memo(function DetailsTextBoxLayer({
         return;
       }
 
+      const autoPan = onAutoPan(event.clientX, event.clientY);
       onResize(cardId, interaction.textBoxId, {
         width:
           interaction.originWidth +
