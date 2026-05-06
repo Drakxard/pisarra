@@ -61,7 +61,7 @@ const KEYBOARD_MOVE_STEP = 24;
 const START_DETAILS_EDIT_EVENT = "study-tree:start-details-edit";
 const DRAG_START_DISTANCE = 12;
 const MAP_EDGE_PAN_MARGIN = 128;
-const MAP_EDGE_PAN_MAX_STEP = 14;
+const MAP_EDGE_PAN_MAX_STEP = 12;
 const MODAL_EDGE_PAN_MARGIN = 16;
 const MODAL_EDGE_PAN_MAX_STEP = 3;
 const DETAILS_INSERT_VIEWPORT_PADDING = 32;
@@ -464,28 +464,18 @@ function getEdgePanOffset(distanceFromStart: number, distanceFromEnd: number, ma
   return 0;
 }
 
-function getSmoothMapEdgePanOffset(
+function getFixedMapEdgePanOffset(
   distanceFromStart: number,
   distanceFromEnd: number,
   margin: number,
   maxStep: number,
 ) {
-  const getDirectionalOffset = (distance: number, direction: -1 | 1) => {
-    if (distance >= margin) {
-      return 0;
-    }
-
-    const proximity = 1 - clamp(distance, 0, margin) / margin;
-    const easedProximity = proximity * proximity;
-    return direction * maxStep * easedProximity;
-  };
-
   if (distanceFromStart < margin) {
-    return getDirectionalOffset(distanceFromStart, -1);
+    return -maxStep;
   }
 
   if (distanceFromEnd < margin) {
-    return getDirectionalOffset(distanceFromEnd, 1);
+    return maxStep;
   }
 
   return 0;
@@ -2653,6 +2643,10 @@ export function StudyTreeApp() {
   const [renamingCategoryId, setRenamingCategoryId] = useState<string | null>(null);
   const [categoryRenameDraft, setCategoryRenameDraft] = useState("");
   const [mapSearchText, setMapSearchText] = useState("");
+  const worldWidth = Math.max(
+    stageSize.width,
+    ...cardsList.map((card) => card.position.x + (card.size?.width ?? CARD_FALLBACK_WIDTH) + 260),
+  );
   const worldHeight = Math.max(
     stageSize.height,
     ...cardsList.map((card) => card.position.y + (card.size?.height ?? CARD_FALLBACK_HEIGHT) + 260),
@@ -2728,13 +2722,13 @@ export function StudyTreeApp() {
       const rightDistance = rect.right - dragState.currentX;
       const topDistance = dragState.currentY - rect.top;
       const bottomDistance = rect.bottom - dragState.currentY;
-      const panX = -getSmoothMapEdgePanOffset(
+      const panX = -getFixedMapEdgePanOffset(
         leftDistance,
         rightDistance,
         MAP_EDGE_PAN_MARGIN,
         MAP_EDGE_PAN_MAX_STEP,
       );
-      const panY = -getSmoothMapEdgePanOffset(
+      const panY = -getFixedMapEdgePanOffset(
         topDistance,
         bottomDistance,
         MAP_EDGE_PAN_MARGIN,
@@ -4504,7 +4498,7 @@ export function StudyTreeApp() {
         ) : null}
 
         {activeCategoryId && !isModalOpen ? (
-          <div className="map-scroll-space" style={{ height: `${worldHeight}px` }} />
+          <div className="map-scroll-space" style={{ width: `${worldWidth}px`, height: `${worldHeight}px` }} />
         ) : null}
 
         {activeCategoryId && !isModalOpen ? (
