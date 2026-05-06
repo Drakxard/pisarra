@@ -393,6 +393,26 @@ img {
   text-align: center;
 }
 
+.map-sync-status {
+  pointer-events: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #5c4a36;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1;
+  box-shadow: 0 10px 24px rgba(71, 48, 22, 0.1);
+}
+
+.map-sync-status.is-pending,
+.map-sync-status.is-saving {
+  color: #8c5f1b;
+}
+
+.map-sync-status.is-error {
+  color: #9a2f2f;
+}
+
 .map-search {
   position: absolute;
   right: clamp(1rem, 3vw, 2rem);

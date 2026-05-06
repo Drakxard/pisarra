@@ -28,19 +28,12 @@ import {
 } from "@/lib/project-persistence";
 import { useTreeStore } from "@/lib/tree-store";
 import type {
-  CollaboratorIdentity,
-  PresenceState,
-  RemoteProject,
-  SyncResponse,
-} from "@/lib/collaboration-types";
-import type {
   CardSize,
   DetailsImage,
   DetailsTable,
   DetailsTextBox,
   DraftImage,
   ExerciseReferenceItem,
-  PendingImageAsset,
   QuestionCard,
   SearchResult,
   StudyCategory,
@@ -48,11 +41,7 @@ import type {
 
 const DEFAULT_STAGE_WIDTH = 1400;
 const DEFAULT_STAGE_HEIGHT = 900;
-const AUTOSAVE_DEBOUNCE_MS = 150;
-const REMOTE_POLL_MS = 350;
-const REMOTE_BACKGROUND_POLL_MS = 1500;
-const PRESENCE_POLL_MS = 900;
-const PRESENCE_SEND_MS = 120;
+const AUTOSAVE_DEBOUNCE_MS = 450;
 const UNDO_TIMEOUT_MS = 3000;
 const PASTE_FEEDBACK_TIMEOUT_MS = 2600;
 const CARD_FALLBACK_WIDTH = 320;
@@ -81,18 +70,7 @@ type StageSize = {
   height: number;
 };
 
-type AppBootState = "loading" | "needs-name" | "ready";
-
-type RemoteSaveResponse =
-  | {
-      ok: true;
-      project: RemoteProject;
-    }
-  | {
-      ok: false;
-      conflict: true;
-      project: RemoteProject;
-    };
+type AppBootState = "loading" | "needs-directory" | "ready";
 
 type DragState = {
   cardId: string;
@@ -487,116 +465,6 @@ function clamp(value: number, min: number, max: number) {
 
 function makeClientId() {
   return crypto.randomUUID();
-}
-
-function getCollaboratorColor(clientId: string) {
-  const colors = ["#2563eb", "#16a34a", "#dc2626", "#9333ea", "#c2410c", "#0f766e", "#be123c"];
-  let hash = 0;
-
-  for (const character of clientId) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-
-  return colors[hash % colors.length];
-}
-
-function getStoredIdentity(): CollaboratorIdentity | null {
-  try {
-    const raw = window.localStorage.getItem("study-tree-collaborator");
-
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<CollaboratorIdentity>;
-
-    if (!parsed.clientId || !parsed.name || !parsed.color) {
-      return null;
-    }
-
-    return {
-      clientId: parsed.clientId,
-      name: parsed.name,
-      color: parsed.color,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function storeIdentity(identity: CollaboratorIdentity) {
-  window.localStorage.setItem("study-tree-collaborator", JSON.stringify(identity));
-}
-
-async function fetchRemoteProject() {
-  const response = await fetch("/api/project", { cache: "no-store" });
-
-  if (!response.ok) {
-    throw new Error("No se pudo cargar el proyecto remoto.");
-  }
-
-  return (await response.json()) as RemoteProject;
-}
-
-type AssetUploadTicket = {
-  path: string;
-  contentType: string;
-  uploadUrl: string;
-};
-
-async function uploadPendingAssets(assets: PendingImageAsset[]) {
-  if (assets.length === 0) {
-    return;
-  }
-
-  const response = await fetch("/api/assets", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      assets: assets.map((asset) => ({
-        path: asset.path,
-        contentType: asset.blob.type || undefined,
-      })),
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error("No se pudieron subir las imagenes pendientes.");
-  }
-
-  const result = (await response.json()) as {
-    uploads?: AssetUploadTicket[];
-  };
-
-  if (!Array.isArray(result.uploads) || result.uploads.length !== assets.length) {
-    throw new Error("No se pudieron preparar las imagenes pendientes.");
-  }
-
-  const uploadsByPath = new Map(result.uploads.map((upload) => [upload.path, upload]));
-
-  await Promise.all(
-    assets.map(async (asset) => {
-      const upload = uploadsByPath.get(asset.path);
-
-      if (!upload) {
-        throw new Error("Falta la firma de un asset pendiente.");
-      }
-
-      const uploadResponse = await fetch(upload.uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": upload.contentType,
-        },
-        body: asset.blob,
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error("No se pudieron subir las imagenes pendientes.");
-      }
-    }),
-  );
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -2574,7 +2442,6 @@ export function StudyTreeApp() {
     getPendingImageAssets,
     markCardImagesPersisted,
     loadProjectSnapshot,
-    mergeRemoteProjectSnapshot,
     resetProject,
     runSearch,
     goToNextSearchResult,
@@ -2602,15 +2469,12 @@ export function StudyTreeApp() {
   const openedDetailsTable = openedCard?.detailsTable ?? null;
   const draftCommandHint = getDraftCommandHint(draftText, Boolean(draftImage));
   const stageRef = useRef<HTMLElement | null>(null);
-  const hasAttemptedRemoteBootRef = useRef(false);
+  const hasAttemptedRecoveryRef = useRef(false);
   const lastPersistedProjectSignatureRef = useRef<string | null>(null);
-  const remoteVersionRef = useRef<number>(0);
-  const latestEventIdRef = useRef<number>(0);
-  const isApplyingRemoteSnapshotRef = useRef(false);
-  const isSavingProjectRef = useRef(false);
-  const needsSaveAfterCurrentRef = useRef(false);
-  const lastPresenceSentAtRef = useRef(0);
-  const lastPresenceRef = useRef<PresenceState["cursor"]>(null);
+  const autosaveTimeoutRef = useRef<number | null>(null);
+  const isPersistingProjectRef = useRef(false);
+  const needsPersistAfterCurrentRef = useRef(false);
+  const isActivatingDirectoryRef = useRef(false);
   const lastDetailsPointerRef = useRef<{ x: number; y: number } | null>(null);
   const undoTimeoutRef = useRef<number | null>(null);
   const exerciseFeedbackTimeoutRef = useRef<number | null>(null);
@@ -2625,11 +2489,12 @@ export function StudyTreeApp() {
     height: DEFAULT_STAGE_HEIGHT,
   });
   const [camera, setCameraState] = useState({ x: 0, y: 0 });
+  const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [bootState, setBootState] = useState<AppBootState>("loading");
   const [bootError, setBootError] = useState<string | null>(null);
-  const [identity, setIdentity] = useState<CollaboratorIdentity | null>(null);
-  const [nameDraft, setNameDraft] = useState("");
-  const [presence, setPresence] = useState<PresenceState[]>([]);
+  const [isPickingDirectory, setIsPickingDirectory] = useState(false);
+  const [canUseProjectDirectory, setCanUseProjectDirectory] = useState(false);
+  const [hasResolvedDirectorySupport, setHasResolvedDirectorySupport] = useState(false);
   const [showUndoToast, setShowUndoToast] = useState(false);
   const [showSearchFeedback, setShowSearchFeedback] = useState(false);
   const [showPasteFeedback, setShowPasteFeedback] = useState(false);
@@ -2679,6 +2544,112 @@ export function StudyTreeApp() {
     cameraRef.current = nextCamera;
     setCameraState(nextCamera);
   };
+
+  const clearAutosaveTimer = useEffectEvent(() => {
+    if (autosaveTimeoutRef.current !== null) {
+      window.clearTimeout(autosaveTimeoutRef.current);
+      autosaveTimeoutRef.current = null;
+    }
+  });
+
+  const readProjectFromHandle = useEffectEvent(async (handle: FileSystemDirectoryHandle) => {
+    try {
+      const snapshot = await readProjectSnapshot(handle);
+      return await hydrateProjectSnapshotAssets(handle, snapshot);
+    } catch (error) {
+      if (
+        error instanceof MissingProjectFileError ||
+        error instanceof EmptyProjectFileError ||
+        error instanceof InvalidProjectFileError ||
+        error instanceof IncompatibleProjectVersionError ||
+        error instanceof SyntaxError
+      ) {
+        console.warn("No se pudo restaurar study-tree.json; se iniciara un proyecto vacio.", error);
+        return null;
+      }
+
+      throw error;
+    }
+  });
+
+  const activateDirectoryHandle = useEffectEvent(
+    async (handle: FileSystemDirectoryHandle, options?: { resetIfEmpty?: boolean }) => {
+      if (isActivatingDirectoryRef.current) {
+        return;
+      }
+
+      isActivatingDirectoryRef.current = true;
+
+      try {
+        const snapshot = await readProjectFromHandle(handle);
+
+        if (snapshot) {
+          loadProjectSnapshot(snapshot);
+        } else if (options?.resetIfEmpty !== false) {
+          resetProject();
+        }
+
+        setDirectoryHandle(handle);
+        setBootError(null);
+        setBootState("ready");
+        lastPersistedProjectSignatureRef.current = JSON.stringify(
+          useTreeStore.getState().getProjectSnapshot(),
+        );
+      } finally {
+        isActivatingDirectoryRef.current = false;
+      }
+    },
+  );
+
+  const persistProjectToDirectory = useEffectEvent(async (handle: FileSystemDirectoryHandle) => {
+    if (isPersistingProjectRef.current) {
+      needsPersistAfterCurrentRef.current = true;
+      return false;
+    }
+
+    const snapshot = useTreeStore.getState().getProjectSnapshot();
+    const signature = JSON.stringify(snapshot);
+    const pendingAssets = useTreeStore.getState().getPendingImageAssets();
+
+    if (signature === lastPersistedProjectSignatureRef.current && pendingAssets.length === 0) {
+      return true;
+    }
+
+    isPersistingProjectRef.current = true;
+
+    try {
+      await writeProjectSnapshot(handle, snapshot, pendingAssets);
+      markCardImagesPersisted(pendingAssets.map((asset) => asset.cardId));
+      lastPersistedProjectSignatureRef.current = JSON.stringify(
+        useTreeStore.getState().getProjectSnapshot(),
+      );
+      return true;
+    } catch (error) {
+      console.error("No se pudo guardar el proyecto en la carpeta seleccionada.", error);
+      setBootError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo guardar el proyecto en la carpeta seleccionada.",
+      );
+      return false;
+    } finally {
+      isPersistingProjectRef.current = false;
+
+      if (needsPersistAfterCurrentRef.current) {
+        needsPersistAfterCurrentRef.current = false;
+        void persistProjectToDirectory(handle);
+      }
+    }
+  });
+
+  const flushLocalProjectNow = useEffectEvent(() => {
+    if (!directoryHandle || bootState !== "ready") {
+      return;
+    }
+
+    clearAutosaveTimer();
+    void persistProjectToDirectory(directoryHandle);
+  });
 
   const stopCardDragAutoPan = useEffectEvent(() => {
     if (dragAutoPanFrameRef.current !== null) {
@@ -2986,164 +2957,26 @@ export function StudyTreeApp() {
     return deltaX !== 0 || deltaY !== 0;
   });
 
-  const applyRemoteProjectSnapshot = useEffectEvent((project: RemoteProject) => {
-    const previousCamera = cameraRef.current;
-
-    isApplyingRemoteSnapshotRef.current = true;
-    mergeRemoteProjectSnapshot(project.snapshot);
-    remoteVersionRef.current = project.snapshotVersion;
-    latestEventIdRef.current = project.latestEventId;
-    lastPersistedProjectSignatureRef.current = JSON.stringify(
-      useTreeStore.getState().getProjectSnapshot(),
-    );
-    setCamera(previousCamera);
-    window.setTimeout(() => {
-      isApplyingRemoteSnapshotRef.current = false;
-    }, 0);
-  });
-
-  const syncRemoteProject = useEffectEvent(async () => {
-    if (!identity || bootState !== "ready") {
+  const onPickProjectDirectory = useEffectEvent(async () => {
+    if (!canUseProjectDirectory || isPickingDirectory) {
       return;
     }
+
+    setIsPickingDirectory(true);
+    setBootError(null);
 
     try {
-      const params = new URLSearchParams({
-        sinceEventId: String(latestEventIdRef.current),
-        snapshotVersion: String(remoteVersionRef.current),
-        clientId: identity.clientId,
-      });
-      const response = await fetch(`/api/sync?${params.toString()}`, {
-        cache: "no-store",
-      });
-
-      if (!response.ok) {
-        return;
-      }
-
-      const sync = (await response.json()) as SyncResponse;
-      latestEventIdRef.current = Math.max(latestEventIdRef.current, sync.latestEventId);
-
-      if (sync.hasRemoteChanges && sync.project) {
-        applyRemoteProjectSnapshot(sync.project);
-        return;
-      }
-
-      remoteVersionRef.current = Math.max(remoteVersionRef.current, sync.snapshotVersion);
+      const handle = await selectProjectDirectory();
+      await activateDirectoryHandle(handle);
     } catch (error) {
-      console.error("No se pudo sincronizar el proyecto.", error);
-    }
-  });
-
-  const saveRemoteProject = useEffectEvent(async () => {
-    if (!identity || bootState !== "ready" || isApplyingRemoteSnapshotRef.current) {
-      return;
-    }
-
-    if (isSavingProjectRef.current) {
-      needsSaveAfterCurrentRef.current = true;
-      return;
-    }
-
-    const snapshot = useTreeStore.getState().getProjectSnapshot();
-    const signature = JSON.stringify(snapshot);
-
-    if (signature === lastPersistedProjectSignatureRef.current) {
-      return;
-    }
-
-    isSavingProjectRef.current = true;
-
-    try {
-      await uploadPendingAssets(useTreeStore.getState().getPendingImageAssets());
-      const response = await fetch("/api/project", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          snapshot,
-          expectedVersion: remoteVersionRef.current,
-          clientId: identity.clientId,
-        }),
-      });
-      const result = (await response.json()) as RemoteSaveResponse;
-
-      if (response.status === 409 || !result.ok) {
-        console.info("Snapshot remoto mas nuevo; se sincroniza sin cambiar de vista.");
-        applyRemoteProjectSnapshot(result.project);
-        return;
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setBootError(
+          error instanceof Error ? error.message : "No se pudo abrir la carpeta del proyecto.",
+        );
       }
-
-      remoteVersionRef.current = result.project.snapshotVersion;
-      latestEventIdRef.current = result.project.latestEventId;
-      lastPersistedProjectSignatureRef.current = signature;
-      markCardImagesPersisted(useTreeStore.getState().getPendingImageAssets().map((asset) => asset.cardId));
-      void syncRemoteProject();
-    } catch (error) {
-      console.error("No se pudo guardar el proyecto remoto.", error);
     } finally {
-      isSavingProjectRef.current = false;
-
-      if (needsSaveAfterCurrentRef.current) {
-        needsSaveAfterCurrentRef.current = false;
-        void saveRemoteProject();
-      }
+      setIsPickingDirectory(false);
     }
-  });
-
-  const flushRemoteProjectNow = useEffectEvent(() => {
-    if (!identity || bootState !== "ready" || isApplyingRemoteSnapshotRef.current) {
-      return;
-    }
-
-    const signature = JSON.stringify(useTreeStore.getState().getProjectSnapshot());
-
-    if (signature === lastPersistedProjectSignatureRef.current) {
-      return;
-    }
-
-    void saveRemoteProject();
-  });
-
-  const sendPresence = useEffectEvent(
-    (
-      cursor: PresenceState["cursor"],
-      options?: {
-        surface?: PresenceState["surface"];
-        openedCardId?: string | null;
-      },
-    ) => {
-    if (!identity || bootState !== "ready") {
-      return;
-    }
-
-    const now = Date.now();
-    lastPresenceRef.current = cursor;
-
-    if (now - lastPresenceSentAtRef.current < PRESENCE_SEND_MS) {
-      return;
-    }
-
-    lastPresenceSentAtRef.current = now;
-
-    void fetch("/api/presence", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ...identity,
-        cursor,
-        surface: options?.surface ?? (openedCardId ? "card-modal" : "map"),
-        activeCategoryId,
-        activeMapKind,
-        activeSectionId,
-        openedCardId: options?.openedCardId ?? openedCardId ?? null,
-      }),
-    }).catch((error) => {
-      console.error("No se pudo actualizar presencia.", error);
-    });
   });
 
   const pasteDetailsImage = useEffectEvent(async (cardId: string, file: File) => {
@@ -3170,7 +3003,7 @@ export function StudyTreeApp() {
       setSelectedDetailsImageId(imageId);
       setShowTableMenu(false);
       if (imageId) {
-        void flushRemoteProjectNow();
+        flushLocalProjectNow();
         window.requestAnimationFrame(() => {
           ensureModalRectVisible(nextRect);
         });
@@ -3850,18 +3683,6 @@ export function StudyTreeApp() {
   });
 
   const onStagePointerMove = useEffectEvent((event: ReactPointerEvent<HTMLElement>) => {
-    const rect = stageRef.current?.getBoundingClientRect();
-
-    if (rect && activeCategoryId && !isModalOpen) {
-      sendPresence({
-        x: event.clientX - rect.left - cameraRef.current.x,
-        y: event.clientY - rect.top - cameraRef.current.y,
-      }, {
-        surface: "map",
-        openedCardId: null,
-      });
-    }
-
     const panState = panStateRef.current;
 
     if (!panState || panState.pointerId !== event.pointerId) {
@@ -4018,6 +3839,9 @@ export function StudyTreeApp() {
       if (dragAutoPanFrameRef.current !== null) {
         window.cancelAnimationFrame(dragAutoPanFrameRef.current);
       }
+      if (autosaveTimeoutRef.current !== null) {
+        window.clearTimeout(autosaveTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -4150,14 +3974,6 @@ export function StudyTreeApp() {
   }, [showTableMenu]);
 
   useEffect(() => {
-    sendPresence(lastPresenceRef.current);
-  }, [activeCategoryId, activeMapKind, activeSectionId, openedCardId, sendPresence]);
-
-  useEffect(() => {
-    void syncRemoteProject();
-  }, [activeCategoryId, activeMapKind, activeSectionId, openedCardId, syncRemoteProject]);
-
-  useEffect(() => {
     if (!activeSearchResult) {
       return;
     }
@@ -4178,162 +3994,138 @@ export function StudyTreeApp() {
   }, [activeSearchResult, cards, stageSize.height, stageSize.width]);
 
   useEffect(() => {
-    if (hasAttemptedRemoteBootRef.current) {
-      return;
-    }
-
-    hasAttemptedRemoteBootRef.current = true;
-    const storedIdentity = getStoredIdentity();
-
-    if (!storedIdentity) {
-      setBootState("needs-name");
-      return;
-    }
-
-    setIdentity(storedIdentity);
+    setCanUseProjectDirectory(supportsProjectDirectory());
+    setHasResolvedDirectorySupport(true);
   }, []);
 
   useEffect(() => {
-    if (!identity) {
+    if (hasAttemptedRecoveryRef.current || !hasResolvedDirectorySupport) {
       return;
     }
 
+    hasAttemptedRecoveryRef.current = true;
+
     let cancelled = false;
 
-    const bootRemoteProject = async () => {
+    const recoverProject = async () => {
+      if (!canUseProjectDirectory) {
+        setBootState("needs-directory");
+        setBootError("Tu navegador no soporta acceso persistente a carpetas.");
+        return;
+      }
+
       setBootState("loading");
       setBootError(null);
 
       try {
-        const project = await fetchRemoteProject();
+        const storedHandle = await withTimeout(recoverStoredDirectoryHandle(), 5000, null);
+
+        if (cancelled || !storedHandle) {
+          if (!cancelled) {
+            setBootState("needs-directory");
+          }
+          return;
+        }
+
+        const hasAccess = await hasDirectoryReadWriteAccess(storedHandle);
 
         if (cancelled) {
           return;
         }
 
-        isApplyingRemoteSnapshotRef.current = true;
-        loadProjectSnapshot(project.snapshot);
-        remoteVersionRef.current = project.snapshotVersion;
-        latestEventIdRef.current = project.latestEventId;
-        lastPersistedProjectSignatureRef.current = JSON.stringify(
-          useTreeStore.getState().getProjectSnapshot(),
-        );
-        setBootState("ready");
+        if (!hasAccess) {
+          setDirectoryHandle(null);
+          setBootState("needs-directory");
+          return;
+        }
+
+        await activateDirectoryHandle(storedHandle);
       } catch (error) {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          console.error("No se pudo hidratar el proyecto al iniciar.", error);
+          setDirectoryHandle(null);
+          setBootState("needs-directory");
+          setBootError(
+            error instanceof Error ? error.message : "No se pudo abrir la carpeta del proyecto.",
+          );
         }
-
-        console.error("No se pudo cargar el proyecto remoto.", error);
-        setBootError(error instanceof Error ? error.message : "No se pudo cargar el proyecto remoto.");
-        setBootState("needs-name");
-      } finally {
-        isApplyingRemoteSnapshotRef.current = false;
       }
     };
 
-    void bootRemoteProject();
+    void recoverProject();
 
     return () => {
       cancelled = true;
     };
-  }, [identity, loadProjectSnapshot]);
+  }, [activateDirectoryHandle, canUseProjectDirectory, hasResolvedDirectorySupport]);
 
   useEffect(() => {
-    if (bootState !== "ready" || !identity || isApplyingRemoteSnapshotRef.current) {
+    if (!directoryHandle || bootState !== "ready") {
       return;
     }
 
-    if (projectSignature === lastPersistedProjectSignatureRef.current) {
+    if (projectSignature === lastPersistedProjectSignatureRef.current && pendingImageAssets.length === 0) {
+      clearAutosaveTimer();
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      void saveRemoteProject();
+    clearAutosaveTimer();
+    autosaveTimeoutRef.current = window.setTimeout(() => {
+      void persistProjectToDirectory(directoryHandle);
     }, AUTOSAVE_DEBOUNCE_MS);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      clearAutosaveTimer();
     };
   }, [
     bootState,
-    identity,
+    clearAutosaveTimer,
+    directoryHandle,
     pendingAssetSignature,
+    pendingImageAssets.length,
     projectSignature,
-    saveRemoteProject,
+    persistProjectToDirectory,
   ]);
 
   useEffect(() => {
-    if (bootState !== "ready" || !identity) {
+    if (!directoryHandle || bootState !== "ready") {
       return;
     }
 
-    let timeoutId: number | null = null;
-    let cancelled = false;
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        flushLocalProjectNow();
+      }
+    };
 
-    const schedulePoll = () => {
-      if (cancelled) {
+    const onPageHide = () => {
+      flushLocalProjectNow();
+    };
+
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      const hasPendingAssets = useTreeStore.getState().getPendingImageAssets().length > 0;
+      const hasPendingSnapshot =
+        JSON.stringify(useTreeStore.getState().getProjectSnapshot()) !== lastPersistedProjectSignatureRef.current;
+
+      if (!hasPendingAssets && !hasPendingSnapshot) {
         return;
       }
 
-      const delay = document.hidden ? REMOTE_BACKGROUND_POLL_MS : REMOTE_POLL_MS;
-      timeoutId = window.setTimeout(() => {
-        void syncRemoteProject().finally(schedulePoll);
-      }, delay);
+      flushLocalProjectNow();
+      event.preventDefault();
+      event.returnValue = "";
     };
 
-    const syncNow = () => {
-      if (!document.hidden) {
-        void syncRemoteProject();
-      }
-    };
-
-    schedulePoll();
-    window.addEventListener("focus", syncNow);
-    document.addEventListener("visibilitychange", syncNow);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onBeforeUnload);
 
     return () => {
-      cancelled = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-      window.removeEventListener("focus", syncNow);
-      document.removeEventListener("visibilitychange", syncNow);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [bootState, identity, syncRemoteProject]);
-
-  useEffect(() => {
-    if (bootState !== "ready" || !identity) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const pollPresence = async () => {
-      try {
-        const response = await fetch("/api/presence", { cache: "no-store" });
-
-        if (!response.ok || cancelled) {
-          return;
-        }
-
-        const body = (await response.json()) as { presence: PresenceState[] };
-        setPresence(body.presence.filter((item) => item.clientId !== identity.clientId));
-      } catch (error) {
-        console.error("No se pudo cargar presencia.", error);
-      }
-    };
-
-    void pollPresence();
-    const intervalId = window.setInterval(() => {
-      void pollPresence();
-    }, PRESENCE_POLL_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [bootState, identity]);
+  }, [bootState, directoryHandle, flushLocalProjectNow]);
 
   useEffect(() => {
     window.addEventListener("keydown", onGlobalKeyDown);
@@ -4354,49 +4146,33 @@ export function StudyTreeApp() {
   if (bootState !== "ready") {
     return (
       <main className="minimal-shell">
-        <section className="directory-gate" aria-label="Entrar al proyecto">
+        <section className="directory-gate" aria-label="Seleccionar carpeta">
           <div className="question-stage-backdrop" />
-          {bootState === "needs-name" ? (
+          {bootState === "needs-directory" ? (
             <div className="directory-gate-panel">
               <span className="directory-gate-eyebrow">Study Tree</span>
-              <h1>Escribe tu nombre para entrar</h1>
-              <p>Se guarda en este navegador para identificar tu cursor y tus cambios.</p>
+              <h1>Selecciona una carpeta para entrar</h1>
+              <p>
+                La app usa la carpeta local como unica fuente de verdad. Cuando la selecciones,
+                cargara y guardara ahi el proyecto.
+              </p>
               {bootError ? <p className="directory-gate-error">{bootError}</p> : null}
-              <form
-                className="name-gate-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const name = nameDraft.trim();
-
-                  if (!name) {
-                    return;
-                  }
-
-                  const clientId = makeClientId();
-                  const nextIdentity = {
-                    clientId,
-                    name,
-                    color: getCollaboratorColor(clientId),
-                  };
-
-                  storeIdentity(nextIdentity);
-                  setIdentity(nextIdentity);
+              <button
+                type="button"
+                className="directory-gate-button"
+                onClick={() => {
+                  void onPickProjectDirectory();
                 }}
+                disabled={!hasResolvedDirectorySupport || !canUseProjectDirectory || isPickingDirectory}
               >
-                <input
-                  className="name-gate-input"
-                  value={nameDraft}
-                  onChange={(event) => {
-                    setNameDraft(event.currentTarget.value);
-                  }}
-                  autoFocus
-                  maxLength={40}
-                  placeholder="Tu nombre"
-                />
-                <button type="submit" className="directory-gate-button">
-                  Entrar
-                </button>
-              </form>
+                {!hasResolvedDirectorySupport
+                  ? "Verificando navegador..."
+                  : isPickingDirectory
+                    ? "Abriendo selector..."
+                    : canUseProjectDirectory
+                      ? "Seleccionar carpeta"
+                      : "No disponible en este navegador"}
+              </button>
             </div>
           ) : (
             <div className="directory-gate-panel">
@@ -4522,29 +4298,6 @@ export function StudyTreeApp() {
                   onMeasure={setCardSize}
                 />
               ))}
-            {presence
-              .filter(
-                (item) =>
-                  item.cursor &&
-                  item.surface === "map" &&
-                  item.activeCategoryId === activeCategoryId &&
-                  item.activeMapKind === activeMapKind &&
-                  item.activeSectionId === activeSectionId,
-              )
-              .map((item) => (
-                <div
-                  key={item.clientId}
-                  className="collaborator-cursor"
-                  style={{
-                    left: `${item.cursor!.x}px`,
-                    top: `${item.cursor!.y}px`,
-                    color: item.color,
-                  }}
-                >
-                  <span className="collaborator-cursor-mark" />
-                  <span className="collaborator-cursor-name">{item.name}</span>
-                </div>
-              ))}
           </div>
         ) : null}
 
@@ -4626,19 +4379,6 @@ export function StudyTreeApp() {
                   y: event.clientY - bodyRect.top,
                 };
               }
-
-              sendPresence(
-                bodyRect
-                  ? {
-                      x: event.clientX - bodyRect.left,
-                      y: event.clientY - bodyRect.top,
-                    }
-                  : null,
-                {
-                  surface: "card-modal",
-                  openedCardId: openedCard.id,
-                },
-              );
             }}
             onPointerUp={(event) => {
               if (modalPanStateRef.current?.pointerId === event.pointerId) {
@@ -4809,7 +4549,7 @@ export function StudyTreeApp() {
                   }}
                   onUpdateContent={updateDetailsTextBoxContent}
                   onDelete={deleteDetailsTextBox}
-                  onFinishEditing={flushRemoteProjectNow}
+                  onFinishEditing={flushLocalProjectNow}
                   onStyle={updateDetailsTextBoxStyle}
                   onMove={moveDetailsTextBox}
                   onResize={resizeDetailsTextBox}
@@ -4835,30 +4575,6 @@ export function StudyTreeApp() {
                   onOpenReference={openExerciseReference}
                   onMove={moveExerciseReference}
                 />
-                {presence
-                  .filter(
-                    (item) =>
-                      item.cursor &&
-                      item.surface === "card-modal" &&
-                      item.activeCategoryId === activeCategoryId &&
-                      item.activeMapKind === activeMapKind &&
-                      item.activeSectionId === activeSectionId &&
-                      item.openedCardId === openedCard.id,
-                  )
-                  .map((item) => (
-                    <div
-                      key={item.clientId}
-                      className="collaborator-cursor is-modal"
-                      style={{
-                        left: `${item.cursor!.x}px`,
-                        top: `${item.cursor!.y}px`,
-                        color: item.color,
-                      }}
-                    >
-                      <span className="collaborator-cursor-mark" />
-                      <span className="collaborator-cursor-name">{item.name}</span>
-                    </div>
-                  ))}
               </div>
               <div className="details-table-controls">
                 {showTableMenu ? (
