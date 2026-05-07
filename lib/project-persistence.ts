@@ -453,8 +453,11 @@ export async function writeProjectSnapshot(
 }
 
 function buildExcalidrawSceneFilePath(mapId: string) {
-  const safeMapId = mapId.replace(/[^a-zA-Z0-9:_-]/g, "_");
-  return `${EXCALIDRAW_DIRECTORY_NAME}/${safeMapId}.excalidraw`;
+  const encodedMapId = Array.from(mapId)
+    .map((character) => character.charCodeAt(0).toString(16).padStart(2, "0"))
+    .join("");
+
+  return `${EXCALIDRAW_DIRECTORY_NAME}/map-${encodedMapId}.excalidraw`;
 }
 
 function createEmptyExcalidrawFileScene(): ExcalidrawSceneState {
