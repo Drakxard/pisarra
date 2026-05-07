@@ -3,6 +3,7 @@
 import type { BinaryFileData } from "@excalidraw/excalidraw/types";
 import { create } from "zustand";
 import {
+  createOrderedElementIndices,
   createEmptyCategory,
   createEmptyMap,
   createEmptyProjectSnapshot,
@@ -178,7 +179,7 @@ function createSeedTextElement(args: {
   text: string;
   x: number;
   y: number;
-  order: number;
+  index: string;
   createdAt: string;
 }) {
   const lines = args.text.split(/\r?\n/);
@@ -208,7 +209,7 @@ function createSeedTextElement(args: {
     seed: Math.floor(Math.random() * 10_000_000),
     version: 1,
     versionNonce: Math.floor(Math.random() * 10_000_000),
-    index: String(args.order).padStart(6, "0"),
+    index: args.index,
     isDeleted: false,
     groupIds: [],
     frameId: null,
@@ -240,7 +241,7 @@ function createSeedImageElement(args: {
   height: number;
   x: number;
   y: number;
-  order: number;
+  index: string;
   createdAt: string;
 }) {
   const timestamp = Date.parse(args.createdAt) || Date.now();
@@ -264,7 +265,7 @@ function createSeedImageElement(args: {
     seed: Math.floor(Math.random() * 10_000_000),
     version: 1,
     versionNonce: Math.floor(Math.random() * 10_000_000),
-    index: String(args.order).padStart(6, "0"),
+    index: args.index,
     isDeleted: false,
     groupIds: [],
     frameId: null,
@@ -287,7 +288,6 @@ async function buildSeededChildScene(map: StudyMap, node: MapNodeMeta) {
   const seededFiles: ExcalidrawSceneState["files"] = {};
   const timestamp = createSnapshotTimestamp();
   let nextY = 104;
-  let nextOrder = 900_000;
 
   const imageBlob = await getNodeImageBlob(node.image);
 
@@ -317,13 +317,12 @@ async function buildSeededChildScene(map: StudyMap, node: MapNodeMeta) {
         height,
         x: 104,
         y: nextY,
-        order: nextOrder,
+        index: "",
         createdAt: timestamp,
       }),
     );
 
     nextY += height + 48;
-    nextOrder += 1;
   }
 
   const note = node.note.trim();
@@ -336,14 +335,20 @@ async function buildSeededChildScene(map: StudyMap, node: MapNodeMeta) {
         text: note,
         x: 104,
         y: nextY,
-        order: nextOrder,
+        index: "",
         createdAt: timestamp,
       }),
     );
   }
 
+  const orderedIndices = createOrderedElementIndices(seededElements.length);
+  const normalizedElements = seededElements.map((element, index) => ({
+    ...element,
+    index: orderedIndices[index],
+  }));
+
   return {
-    elements: seededElements,
+    elements: normalizedElements,
     files: seededFiles,
     timestamp,
   };

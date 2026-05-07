@@ -19,6 +19,7 @@ import {
   type StudyMap,
   type StudySectionId,
 } from "@/lib/types";
+import { generateNKeysBetween, generateKeyBetween } from "fractional-indexing";
 
 const DEFAULT_VIEW_BACKGROUND = "#f3dfc1";
 const DEFAULT_STROKE = "#4f3c2c";
@@ -62,8 +63,46 @@ function createElementUpdatedAt(dateString?: string) {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
-function makeElementIndex(order: number) {
-  return order.toString().padStart(6, "0");
+function hasValidElementIndex(value: unknown) {
+  if (typeof value !== "string" || !value) {
+    return false;
+  }
+
+  try {
+    generateKeyBetween(value, null);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function createOrderedElementIndices(count: number) {
+  if (count <= 0) {
+    return [] as string[];
+  }
+
+  return generateNKeysBetween(null, null, count);
+}
+
+function getOrderedElementIndicesSlice(start: number, count: number) {
+  if (count <= 0) {
+    return [] as string[];
+  }
+
+  return createOrderedElementIndices(start + count).slice(start, start + count);
+}
+
+function normalizeElementIndices<T extends ExcalidrawSceneState["elements"][number]>(elements: T[]) {
+  if (elements.every((element) => hasValidElementIndex(element.index))) {
+    return elements;
+  }
+
+  const normalizedIndices = createOrderedElementIndices(elements.length);
+
+  return elements.map((element, index) => ({
+    ...element,
+    index: normalizedIndices[index],
+  }));
 }
 
 function clampNumber(value: unknown, fallback: number) {
@@ -372,7 +411,7 @@ export function createNodeSceneElements(args: {
   const textBounds = estimateTextBounds(label);
   const groupId = args.groupId ?? `${args.nodeId}::group`;
   const { elementId, labelElementId } = buildNodeElementIds(args.nodeId);
-  const baseIndex = (args.order ?? 0) * 2;
+  const [containerIndex, labelIndex] = getOrderedElementIndicesSlice((args.order ?? 0) * 2, 2);
 
   return [
     {
@@ -394,7 +433,7 @@ export function createNodeSceneElements(args: {
       seed: Math.floor(Math.random() * 10_000_000),
       version: 1,
       versionNonce: Math.floor(Math.random() * 10_000_000),
-      index: makeElementIndex(baseIndex),
+      index: containerIndex,
       isDeleted: false,
       groupIds: [groupId],
       frameId: null,
@@ -431,7 +470,7 @@ export function createNodeSceneElements(args: {
       seed: Math.floor(Math.random() * 10_000_000),
       version: 1,
       versionNonce: Math.floor(Math.random() * 10_000_000),
-      index: makeElementIndex(baseIndex + 1),
+      index: labelIndex,
       isDeleted: false,
       groupIds: [groupId],
       frameId: null,
@@ -571,13 +610,15 @@ function normalizeSceneElements(value: unknown): ExcalidrawSceneState["elements"
     return [];
   }
 
-  return value.flatMap((entry) => {
+  const elements = value.flatMap((entry) => {
     if (!entry || typeof entry !== "object") {
       return [];
     }
 
     return [entry as ExcalidrawSceneState["elements"][number]];
   });
+
+  return normalizeElementIndices(elements);
 }
 
 function normalizeNodeMeta(nodeId: string, value: unknown): MapNodeMeta | null {
