@@ -10,11 +10,13 @@ import {
   IncompatibleProjectVersionError,
   MissingProjectFileError,
   queryDirectoryPermission,
+  readPureExcalidrawScene,
   readProjectSnapshot,
   recoverStoredDirectoryHandle,
   requestDirectoryPermission,
   selectProjectDirectory,
   supportsProjectDirectory,
+  writePureExcalidrawScene,
   writeProjectSnapshot,
 } from "@/lib/project-persistence";
 import {
@@ -57,6 +59,16 @@ type BuildInfo = {
   deploymentId: string | null;
   environment: string | null;
 };
+
+type PureMapSession = {
+  categoryId: string;
+  mapId: string;
+  title: string;
+  breadcrumbLabel: string;
+  loadKey: number;
+};
+
+type PureMapSaveStatus = "idle" | "loading" | "saving" | "saved" | "error";
 
 function normalizeSearchText(value: string) {
   return value
@@ -294,8 +306,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     createCategory,
     renameCategory,
     selectCategory,
-    openMainCategoryMap,
-    openCategorySection,
     openMap,
     openNodeChildMap,
     goToParentMap,
@@ -324,7 +334,13 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const [canvasStatus, setCanvasStatus] = useState<MapCanvasStatus>("idle");
   const [canvasFailure, setCanvasFailure] = useState<CanvasFailure | null>(null);
   const [canvasRetryKey, setCanvasRetryKey] = useState(0);
+  const [pureMapSession, setPureMapSession] = useState<PureMapSession | null>(null);
+  const [pureMapScene, setPureMapScene] = useState<ExcalidrawSceneState | null>(null);
+  const [pureMapSaveStatus, setPureMapSaveStatus] = useState<PureMapSaveStatus>("idle");
+  const [pureMapError, setPureMapError] = useState<string | null>(null);
   const autosaveTimeoutRef = useRef<number | null>(null);
+  const pureMapSaveTimeoutRef = useRef<number | null>(null);
+  const pureMapLastSavedSignatureRef = useRef("");
   const lastPersistedProjectSignatureRef = useRef("");
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const sceneSyncSignatureRef = useRef("");
@@ -798,6 +814,101 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   };
 
+  const closePureMap = () => {
+    if (pureMapSaveTimeoutRef.current !== null) {
+      window.clearTimeout(pureMapSaveTimeoutRef.current);
+      pureMapSaveTimeoutRef.current = null;
+    }
+
+    setPureMapSession(null);
+    setPureMapScene(null);
+    setPureMapSaveStatus("idle");
+    setPureMapError(null);
+    pureMapLastSavedSignatureRef.current = "";
+  };
+
+  const openPureExcalidrawMap = async (args: {
+    categoryId: string;
+    mapId: string;
+    title: string;
+    breadcrumbLabel: string;
+  }) => {
+    if (!directoryHandle) {
+      setPureMapError("Selecciona una carpeta del proyecto para guardar archivos Excalidraw locales.");
+      return;
+    }
+
+    if (pureMapSaveTimeoutRef.current !== null) {
+      window.clearTimeout(pureMapSaveTimeoutRef.current);
+      pureMapSaveTimeoutRef.current = null;
+    }
+
+    closeActiveMap();
+    setPureMapError(null);
+    setPureMapSaveStatus("loading");
+    setPureMapScene(null);
+    setPureMapSession({
+      ...args,
+      loadKey: Date.now(),
+    });
+
+    try {
+      const scene = await readPureExcalidrawScene(directoryHandle, args.mapId);
+      const signature = JSON.stringify(scene);
+      await writePureExcalidrawScene(directoryHandle, args.mapId, scene);
+      pureMapLastSavedSignatureRef.current = signature;
+      setPureMapScene(scene);
+      setPureMapSaveStatus("saved");
+    } catch (error) {
+      setPureMapSaveStatus("error");
+      setPureMapError(error instanceof Error ? error.message : "No se pudo abrir el archivo Excalidraw local.");
+    }
+  };
+
+  const schedulePureMapSave = useCallback(
+    (session: PureMapSession, scene: ExcalidrawSceneState) => {
+      const handle = directoryHandle;
+      const signature = JSON.stringify(scene);
+
+      setPureMapScene(scene);
+
+      if (!handle || signature === pureMapLastSavedSignatureRef.current) {
+        return;
+      }
+
+      setPureMapSaveStatus("saving");
+      setPureMapError(null);
+
+      if (pureMapSaveTimeoutRef.current !== null) {
+        window.clearTimeout(pureMapSaveTimeoutRef.current);
+      }
+
+      pureMapSaveTimeoutRef.current = window.setTimeout(() => {
+        pureMapSaveTimeoutRef.current = null;
+        void writePureExcalidrawScene(handle, session.mapId, scene)
+          .then(() => {
+            pureMapLastSavedSignatureRef.current = signature;
+            setPureMapSaveStatus("saved");
+            setPureMapError(null);
+          })
+          .catch((error) => {
+            setPureMapSaveStatus("error");
+            setPureMapError(error instanceof Error ? error.message : "No se pudo guardar el archivo Excalidraw.");
+          });
+      }, AUTOSAVE_DEBOUNCE_MS);
+    },
+    [directoryHandle],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (pureMapSaveTimeoutRef.current !== null) {
+        window.clearTimeout(pureMapSaveTimeoutRef.current);
+        pureMapSaveTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   const createNodeAtViewportCenter = () => {
     const api = excalidrawApiRef.current;
 
@@ -1000,7 +1111,100 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
 
   return (
     <main className="minimal-shell">
-      {activeMapRouteError ? (
+      {pureMapSession ? (
+        <section className="immersive-map-shell">
+          <div className="map-hud map-hud--breadcrumbs">
+            <button type="button" className="map-floating-button" onClick={closePureMap}>
+              Materias
+            </button>
+            <div className="map-breadcrumbs">
+              <span className="map-breadcrumb">{pureMapSession.breadcrumbLabel}</span>
+            </div>
+          </div>
+
+          <div className="pure-map-save-status" aria-live="polite">
+            {pureMapSaveStatus === "loading"
+              ? "Cargando archivo"
+              : pureMapSaveStatus === "saving"
+                ? "Guardando"
+                : pureMapSaveStatus === "saved"
+                  ? "Guardado"
+                  : pureMapSaveStatus === "error"
+                    ? "Error al guardar"
+                    : ""}
+          </div>
+
+          <div className="immersive-map-canvas">
+            {pureMapScene ? (
+              <ExcalidrawMapCanvas
+                key={`${pureMapSession.mapId}:${pureMapSession.loadKey}`}
+                initialData={
+                  {
+                    elements: pureMapScene.elements,
+                    appState: pureMapScene.appState,
+                    files: pureMapScene.files,
+                    scrollToContent: true,
+                  } as never
+                }
+                viewModeEnabled={false}
+                UIOptions={{
+                  canvasActions: {
+                    clearCanvas: true,
+                    export: false,
+                    loadScene: false,
+                    saveToActiveFile: false,
+                    toggleTheme: true,
+                    changeViewBackgroundColor: true,
+                    saveAsImage: true,
+                  },
+                  tools: {
+                    image: true,
+                  },
+                }}
+                onChange={(elements, appState, files) => {
+                  schedulePureMapSave(pureMapSession, {
+                    elements: [...elements],
+                    appState: {
+                      scrollX: appState.scrollX,
+                      scrollY: appState.scrollY,
+                      zoom: appState.zoom,
+                      viewBackgroundColor: appState.viewBackgroundColor,
+                      theme: appState.theme,
+                      gridSize: appState.gridSize,
+                    },
+                    files: { ...files },
+                  });
+                }}
+              />
+            ) : (
+              <div className="map-canvas-state" aria-live="polite">
+                Cargando mapa...
+              </div>
+            )}
+
+            {pureMapError ? (
+              <div className="map-canvas-state map-canvas-state--error" aria-live="polite">
+                <strong>No se pudo usar el archivo Excalidraw</strong>
+                <span>{pureMapError}</span>
+                <div className="map-canvas-state-actions">
+                  <button
+                    type="button"
+                    className="map-floating-button is-accent"
+                    onClick={() => {
+                      void openPureExcalidrawMap(pureMapSession);
+                    }}
+                  >
+                    Reintentar
+                  </button>
+                  <button type="button" className="map-floating-button" onClick={closePureMap}>
+                    Materias
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : activeMapRouteError ? (
         <section className="directory-gate" aria-live="polite">
           <div className="question-stage-backdrop" />
           <div className="directory-gate-panel">
@@ -1017,8 +1221,29 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
           categories={categoriesList}
           selectedCategoryId={selectedCategory?.id ?? null}
           onSelectCategory={selectCategory}
-          onOpenMain={openMainCategoryMap}
-          onOpenSection={openCategorySection}
+          onOpenMain={(categoryId) => {
+            const category = categories[categoryId];
+            if (category) {
+              void openPureExcalidrawMap({
+                categoryId,
+                mapId: category.mainMapId,
+                title: category.name,
+                breadcrumbLabel: `${category.name} / Mapa principal`,
+              });
+            }
+          }}
+          onOpenSection={(categoryId, sectionId) => {
+            const category = categories[categoryId];
+            const mapId = category?.sectionMapIds[sectionId];
+            if (category && mapId) {
+              void openPureExcalidrawMap({
+                categoryId,
+                mapId,
+                title: getSectionLabel(sectionId),
+                breadcrumbLabel: `${category.name} / ${getSectionLabel(sectionId)}`,
+              });
+            }
+          }}
           onCreateCategory={(name) => {
             const categoryId = createCategory(name);
 

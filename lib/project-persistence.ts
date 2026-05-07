@@ -1,7 +1,7 @@
 "use client";
 
 import { createEmptyProjectSnapshot, normalizeProjectSnapshot } from "@/lib/project-snapshot";
-import type { PendingImageAsset, ProjectSnapshot, QuestionCardImage } from "@/lib/types";
+import type { ExcalidrawSceneState, PendingImageAsset, ProjectSnapshot, QuestionCardImage } from "@/lib/types";
 
 const DB_NAME = "study-tree-projects";
 const DB_VERSION = 3;
@@ -11,6 +11,7 @@ const HANDLE_STORE_NAME = "handles";
 const DIRECTORY_KEY = "active-project-directory";
 const PROJECT_FILE_NAME = "study-tree.json";
 const ASSETS_DIRECTORY_NAME = "study-assets";
+const EXCALIDRAW_DIRECTORY_NAME = "study-excalidraw";
 
 type FileSystemPermissionMode = "read" | "readwrite";
 type RawProjectSnapshot = Partial<Omit<ProjectSnapshot, "version">> & {
@@ -451,6 +452,109 @@ export async function writeProjectSnapshot(
   await writable.close();
 }
 
+function buildExcalidrawSceneFilePath(mapId: string) {
+  const safeMapId = mapId.replace(/[^a-zA-Z0-9:_-]/g, "_");
+  return `${EXCALIDRAW_DIRECTORY_NAME}/${safeMapId}.excalidraw`;
+}
+
+function createEmptyExcalidrawFileScene(): ExcalidrawSceneState {
+  return {
+    elements: [],
+    appState: {
+      scrollX: 0,
+      scrollY: 0,
+      zoom: {
+        value: 1,
+      },
+      viewBackgroundColor: "#ffffff",
+      theme: "light",
+      gridSize: null,
+    },
+    files: {},
+  };
+}
+
+function normalizeExcalidrawFileScene(value: unknown): ExcalidrawSceneState {
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const appState =
+    source.appState && typeof source.appState === "object"
+      ? (source.appState as Partial<ExcalidrawSceneState["appState"]>)
+      : {};
+
+  return {
+    elements: Array.isArray(source.elements)
+      ? (source.elements as ExcalidrawSceneState["elements"])
+      : [],
+    appState: {
+      scrollX: typeof appState.scrollX === "number" ? appState.scrollX : 0,
+      scrollY: typeof appState.scrollY === "number" ? appState.scrollY : 0,
+      zoom:
+        appState.zoom && typeof appState.zoom === "object" && typeof appState.zoom.value === "number"
+          ? { value: appState.zoom.value }
+          : { value: 1 },
+      viewBackgroundColor:
+        typeof appState.viewBackgroundColor === "string" ? appState.viewBackgroundColor : "#ffffff",
+      theme: appState.theme === "dark" ? "dark" : "light",
+      gridSize: appState.gridSize ?? null,
+    },
+    files:
+      source.files && typeof source.files === "object"
+        ? (source.files as ExcalidrawSceneState["files"])
+        : {},
+  };
+}
+
+export async function readPureExcalidrawScene(handle: FileSystemDirectoryHandle, mapId: string) {
+  const path = buildExcalidrawSceneFilePath(mapId);
+
+  try {
+    const fileHandle = await getRelativeFileHandle(handle, path, false);
+    const file = await fileHandle.getFile();
+    const raw = await file.text();
+
+    if (!raw.trim()) {
+      return createEmptyExcalidrawFileScene();
+    }
+
+    return normalizeExcalidrawFileScene(JSON.parse(raw));
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      (error.name === "NotFoundError" || error.name === "TypeMismatchError")
+    ) {
+      return createEmptyExcalidrawFileScene();
+    }
+
+    throw error;
+  }
+}
+
+export async function writePureExcalidrawScene(
+  handle: FileSystemDirectoryHandle,
+  mapId: string,
+  scene: ExcalidrawSceneState,
+) {
+  const path = buildExcalidrawSceneFilePath(mapId);
+  const fileHandle = await getRelativeFileHandle(handle, path, true);
+  const writable = await fileHandle.createWritable();
+
+  await writable.write(
+    `${JSON.stringify(
+      {
+        type: "excalidraw",
+        version: 2,
+        source: "study-tree",
+        elements: scene.elements,
+        appState: scene.appState,
+        files: scene.files,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await writable.close();
+}
+
 export async function recoverStoredDirectoryHandle() {
   if (!supportsProjectDirectory()) {
     return null;
@@ -459,4 +563,4 @@ export async function recoverStoredDirectoryHandle() {
   return getStoredDirectoryHandle();
 }
 
-export { ASSETS_DIRECTORY_NAME, PROJECT_FILE_NAME };
+export { ASSETS_DIRECTORY_NAME, EXCALIDRAW_DIRECTORY_NAME, PROJECT_FILE_NAME };
