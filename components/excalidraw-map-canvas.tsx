@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import type { ExcalidrawProps } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
 
@@ -11,10 +12,59 @@ const Excalidraw = dynamic(
   },
 );
 
-export function ExcalidrawMapCanvas(props: ExcalidrawProps) {
+type ExcalidrawMapCanvasProps = ExcalidrawProps & {
+  errorKey?: string;
+  onRenderError?: (error: Error) => void;
+  fallback?: ReactNode;
+};
+
+type CanvasBoundaryProps = {
+  children: ReactNode;
+  errorKey?: string;
+  fallback?: ReactNode;
+  onRenderError?: (error: Error) => void;
+};
+
+type CanvasBoundaryState = {
+  error: Error | null;
+};
+
+class CanvasErrorBoundary extends Component<CanvasBoundaryProps, CanvasBoundaryState> {
+  state: CanvasBoundaryState = {
+    error: null,
+  };
+
+  static getDerivedStateFromError(error: Error) {
+    return {
+      error,
+    };
+  }
+
+  componentDidCatch(error: Error, _errorInfo: ErrorInfo) {
+    this.props.onRenderError?.(error);
+  }
+
+  componentDidUpdate(previousProps: CanvasBoundaryProps) {
+    if (previousProps.errorKey !== this.props.errorKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return this.props.fallback ?? null;
+    }
+
+    return this.props.children;
+  }
+}
+
+export function ExcalidrawMapCanvas({ errorKey, onRenderError, fallback, ...props }: ExcalidrawMapCanvasProps) {
   return (
     <div className="excalidraw-host">
-      <Excalidraw {...props} />
+      <CanvasErrorBoundary errorKey={errorKey} onRenderError={onRenderError} fallback={fallback}>
+        <Excalidraw {...props} />
+      </CanvasErrorBoundary>
     </div>
   );
 }

@@ -76,6 +76,10 @@ function hasValidElementIndex(value: unknown) {
   }
 }
 
+export function hasValidExcalidrawElementIndex(value: unknown) {
+  return hasValidElementIndex(value);
+}
+
 export function createOrderedElementIndices(count: number) {
   if (count <= 0) {
     return [] as string[];
@@ -103,6 +107,26 @@ function normalizeElementIndices<T extends ExcalidrawSceneState["elements"][numb
     ...element,
     index: normalizedIndices[index],
   }));
+}
+
+export function normalizeSceneForRuntime(scene: ExcalidrawSceneState) {
+  const normalizedElements = normalizeElementIndices(scene.elements);
+  const changed = normalizedElements.some((element, index) => element !== scene.elements[index]);
+
+  return {
+    scene:
+      changed
+        ? {
+            ...scene,
+            elements: normalizedElements,
+          }
+        : scene,
+    changed,
+    invalidElementCount: scene.elements.reduce(
+      (count, element) => count + (hasValidElementIndex(element.index) ? 0 : 1),
+      0,
+    ),
+  };
 }
 
 function clampNumber(value: unknown, fallback: number) {
