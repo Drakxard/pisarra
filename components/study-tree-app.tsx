@@ -322,6 +322,11 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       : categoriesList[0] ?? null;
   const activeCategory = activeCategoryId ? categories[activeCategoryId] ?? null : null;
   const activeMap = activeCategory && activeMapId ? activeCategory.maps[activeMapId] ?? null : null;
+  const hasActiveMapRequest = Boolean(activeCategoryId || activeMapId);
+  const activeMapRouteError =
+    hasActiveMapRequest && (!activeCategory || !activeMap)
+      ? "No se pudo abrir el mapa seleccionado porque ya no existe en el proyecto cargado."
+      : null;
   const selectedNode = activeMap && selectedNodeId ? activeMap.nodes[selectedNodeId] ?? null : null;
   const projectSignature = JSON.stringify(getProjectSnapshot());
   const activeMapSceneSignature = activeMap ? JSON.stringify(activeMap.scene) : "";
@@ -332,6 +337,18 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     [activeMapSceneSignature, activeMap?.id],
   );
   const runtimeScene = runtimeSceneState?.scene ?? activeMap?.scene ?? null;
+  const excalidrawInitialData = useMemo(
+    () =>
+      activeMap
+        ? ({
+            elements: runtimeScene?.elements ?? activeMap.scene.elements ?? [],
+            appState: runtimeScene?.appState ?? activeMap.scene.appState,
+            files: runtimeScene?.files ?? activeMap.scene.files ?? {},
+            scrollToContent: false,
+          } as never)
+        : null,
+    [activeMap, runtimeScene],
+  );
 
   const centerNodeInViewport = useEffectEvent((node: MapNodeMeta) => {
     const api = excalidrawApiRef.current;
@@ -767,7 +784,19 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
 
   return (
     <main className="minimal-shell">
-      {!activeCategory || !activeMap ? (
+      {activeMapRouteError ? (
+        <section className="directory-gate" aria-live="polite">
+          <div className="question-stage-backdrop" />
+          <div className="directory-gate-panel">
+            <span className="directory-gate-eyebrow">Study Maps</span>
+            <h1>No se pudo abrir el mapa</h1>
+            <p className="directory-gate-error">{activeMapRouteError}</p>
+            <button type="button" className="directory-gate-button" onClick={closeActiveMap}>
+              Volver al inicio
+            </button>
+          </div>
+        </section>
+      ) : !activeCategory || !activeMap || !excalidrawInitialData ? (
         <HomeScreen
           categories={categoriesList}
           selectedCategoryId={selectedCategory?.id ?? null}
@@ -843,14 +872,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
             <ExcalidrawMapCanvas
               key={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}`}
               errorKey={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}`}
-              initialData={
-                {
-                  elements: runtimeScene?.elements ?? [],
-                  appState: runtimeScene?.appState ?? activeMap.scene.appState,
-                  files: runtimeScene?.files ?? activeMap.scene.files,
-                  scrollToContent: false,
-                } as never
-              }
+              initialData={excalidrawInitialData}
               excalidrawAPI={(api) => {
                 excalidrawApiRef.current = api;
               }}
