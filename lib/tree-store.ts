@@ -119,6 +119,10 @@ function cloneScene(scene: ExcalidrawSceneState): ExcalidrawSceneState {
   };
 }
 
+function areScenesEqual(left: ExcalidrawSceneState, right: ExcalidrawSceneState) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function cloneMap(map: StudyMap): StudyMap {
   return {
     ...map,
@@ -456,10 +460,16 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     });
   },
   selectNode: (nodeId) => {
-    const map = getActiveMap(get());
+    const state = get();
+    const map = getActiveMap(state);
+    const nextSelectedNodeId = nodeId && map?.nodes[nodeId] ? nodeId : null;
+
+    if (state.selectedNodeId === nextSelectedNodeId) {
+      return;
+    }
 
     set({
-      selectedNodeId: nodeId && map?.nodes[nodeId] ? nodeId : null,
+      selectedNodeId: nextSelectedNodeId,
     });
   },
   createMapNode: (label, placement) => {
@@ -691,25 +701,33 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     const categories = cloneCategories(state.categories);
     const category = categories[activeCategory.id];
     const map = category.maps[activeMap.id];
-    map.scene = cloneScene({
+    const nextScene = cloneScene({
       elements: scene.elements.filter((element) => element.type !== "selection"),
       appState: serializeSceneAppState(scene.appState),
       files: scene.files,
     });
+    const sceneChanged = !areScenesEqual(activeMap.scene, nextScene);
+    map.scene = nextScene;
 
     const removedNodeIds = removeDeletedNodesFromMap(category, map.id);
     const labelsChanged = syncNodeLabelsFromScene(map);
+    const nextSelectedNodeId =
+      state.selectedNodeId && !removedNodeIds.includes(state.selectedNodeId) ? state.selectedNodeId : null;
+
+    if (!sceneChanged && !labelsChanged && removedNodeIds.length === 0 && state.selectedNodeId === nextSelectedNodeId) {
+      return;
+    }
+
     const timestamp = createSnapshotTimestamp();
 
-    if (labelsChanged || removedNodeIds.length > 0 || true) {
+    if (sceneChanged || labelsChanged || removedNodeIds.length > 0) {
       map.updatedAt = timestamp;
       category.updatedAt = timestamp;
     }
 
     set({
       categories,
-      selectedNodeId:
-        state.selectedNodeId && !removedNodeIds.includes(state.selectedNodeId) ? state.selectedNodeId : null,
+      selectedNodeId: nextSelectedNodeId,
       snapshotUpdatedAt: timestamp,
     });
   },
