@@ -179,6 +179,7 @@ export type StudyMap = {
   parentMapId: string | null;
   parentNodeId: string | null;
   rootSectionId?: StudySectionId | null;
+  contentInitializedAt: string | null;
   nodes: Record<string, MapNodeMeta>;
   scene: ExcalidrawSceneState;
   createdAt: string;

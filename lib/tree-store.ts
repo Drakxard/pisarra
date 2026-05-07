@@ -1,5 +1,6 @@
 "use client";
 
+import type { BinaryFileData } from "@excalidraw/excalidraw/types";
 import { create } from "zustand";
 import {
   createEmptyCategory,
@@ -57,6 +58,7 @@ type TreeStore = {
   clearNodeImage: (nodeId: string) => void;
   deleteNode: (nodeId: string) => void;
   setMapScene: (scene: ExcalidrawSceneState) => void;
+  initializeMapContent: (mapId?: string | null) => Promise<void>;
   getProjectSnapshot: () => ProjectSnapshot;
   getPendingImageAssets: () => PendingImageAsset[];
   markNodeImagesPersisted: (nodeIds: string[]) => void;
@@ -121,6 +123,230 @@ function cloneScene(scene: ExcalidrawSceneState): ExcalidrawSceneState {
 
 function areScenesEqual(left: ExcalidrawSceneState, right: ExcalidrawSceneState) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function hasRenderableSceneElements(scene: ExcalidrawSceneState) {
+  return scene.elements.some((element) => !element.isDeleted);
+}
+
+function readBlobAsDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("No se pudo codificar la imagen heredada."));
+    };
+
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("No se pudo leer la imagen heredada."));
+    };
+
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function getNodeImageBlob(image: QuestionCardImage | null) {
+  if (!image) {
+    return null;
+  }
+
+  if (image.pendingBlob) {
+    return image.pendingBlob;
+  }
+
+  if (image.previewUrl) {
+    const response = await fetch(image.previewUrl);
+
+    if (!response.ok) {
+      throw new Error("No se pudo recuperar la imagen heredada.");
+    }
+
+    return await response.blob();
+  }
+
+  return null;
+}
+
+function createSeedTextElement(args: {
+  mapId: string;
+  nodeId: string;
+  text: string;
+  x: number;
+  y: number;
+  order: number;
+  createdAt: string;
+}) {
+  const lines = args.text.split(/\r?\n/);
+  const longestLine = lines.reduce((max, line) => Math.max(max, line.length), 1);
+  const fontSize = 28;
+  const lineHeight = 1.35;
+  const width = Math.max(480, Math.min(1040, Math.round(longestLine * fontSize * 0.52)));
+  const height = Math.max(120, Math.round(lines.length * fontSize * lineHeight));
+  const timestamp = Date.parse(args.createdAt) || Date.now();
+
+  return {
+    id: `${args.mapId}::seed-note::${args.nodeId}`,
+    type: "text",
+    x: args.x,
+    y: args.y,
+    width,
+    height,
+    strokeColor: "#171717",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roundness: null,
+    roughness: 0,
+    opacity: 100,
+    angle: 0,
+    seed: Math.floor(Math.random() * 10_000_000),
+    version: 1,
+    versionNonce: Math.floor(Math.random() * 10_000_000),
+    index: String(args.order).padStart(6, "0"),
+    isDeleted: false,
+    groupIds: [],
+    frameId: null,
+    boundElements: null,
+    updated: timestamp,
+    link: null,
+    locked: false,
+    fontSize,
+    fontFamily: 1,
+    text: args.text,
+    textAlign: "left",
+    verticalAlign: "top",
+    containerId: null,
+    originalText: args.text,
+    autoResize: false,
+    lineHeight,
+    customData: {
+      nodeId: args.nodeId,
+      role: "seeded-note",
+    },
+  };
+}
+
+function createSeedImageElement(args: {
+  mapId: string;
+  nodeId: string;
+  fileId: string;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  order: number;
+  createdAt: string;
+}) {
+  const timestamp = Date.parse(args.createdAt) || Date.now();
+
+  return {
+    id: `${args.mapId}::seed-image::${args.nodeId}`,
+    type: "image",
+    x: args.x,
+    y: args.y,
+    width: args.width,
+    height: args.height,
+    strokeColor: "transparent",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roundness: null,
+    roughness: 0,
+    opacity: 100,
+    angle: 0,
+    seed: Math.floor(Math.random() * 10_000_000),
+    version: 1,
+    versionNonce: Math.floor(Math.random() * 10_000_000),
+    index: String(args.order).padStart(6, "0"),
+    isDeleted: false,
+    groupIds: [],
+    frameId: null,
+    boundElements: null,
+    updated: timestamp,
+    link: null,
+    locked: false,
+    fileId: args.fileId,
+    status: "saved",
+    scale: [1, 1],
+    customData: {
+      nodeId: args.nodeId,
+      role: "seeded-image",
+    },
+  };
+}
+
+async function buildSeededChildScene(map: StudyMap, node: MapNodeMeta) {
+  const seededElements: ExcalidrawSceneState["elements"] = [];
+  const seededFiles: ExcalidrawSceneState["files"] = {};
+  const timestamp = createSnapshotTimestamp();
+  let nextY = 104;
+  let nextOrder = 900_000;
+
+  const imageBlob = await getNodeImageBlob(node.image);
+
+  if (imageBlob) {
+    const dataURL = await readBlobAsDataUrl(imageBlob);
+    const fileId = `${map.id}::seed-image::file` as BinaryFileData["id"];
+    const width = Math.max(260, Math.min(960, node.image?.width ?? 960));
+    const height = Math.max(
+      160,
+      Math.round(((node.image?.height ?? 720) / Math.max(1, node.image?.width ?? 960)) * width),
+    );
+
+    seededFiles[fileId] = {
+      id: fileId,
+      dataURL: dataURL as BinaryFileData["dataURL"],
+      mimeType: (node.image?.mimeType ?? "image/png") as BinaryFileData["mimeType"],
+      created: Date.now(),
+      lastRetrieved: Date.now(),
+    };
+
+    seededElements.push(
+      createSeedImageElement({
+        mapId: map.id,
+        nodeId: node.nodeId,
+        fileId,
+        width,
+        height,
+        x: 104,
+        y: nextY,
+        order: nextOrder,
+        createdAt: timestamp,
+      }),
+    );
+
+    nextY += height + 48;
+    nextOrder += 1;
+  }
+
+  const note = node.note.trim();
+
+  if (note) {
+    seededElements.push(
+      createSeedTextElement({
+        mapId: map.id,
+        nodeId: node.nodeId,
+        text: note,
+        x: 104,
+        y: nextY,
+        order: nextOrder,
+        createdAt: timestamp,
+      }),
+    );
+  }
+
+  return {
+    elements: seededElements,
+    files: seededFiles,
+    timestamp,
+  };
 }
 
 function cloneMap(map: StudyMap): StudyMap {
@@ -473,7 +699,7 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     });
   },
   createMapNode: (label, placement) => {
-    const normalizedLabel = normalizeText(label) || "Nuevo nodo";
+    const normalizedLabel = normalizeText(label) || "Nueva tarjeta";
     const state = get();
     const activeCategory = getActiveCategory(state);
     const activeMap = getActiveMap(state);
@@ -729,6 +955,86 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
       categories,
       selectedNodeId: nextSelectedNodeId,
       snapshotUpdatedAt: timestamp,
+    });
+  },
+  initializeMapContent: async (mapId) => {
+    const state = get();
+    const activeCategory = getActiveCategory(state);
+    const activeMap =
+      activeCategory && mapId ? activeCategory.maps[mapId] ?? null : getActiveMap(state);
+
+    if (!activeCategory || !activeMap || activeMap.kind !== "child" || activeMap.contentInitializedAt) {
+      return;
+    }
+
+    if (hasRenderableSceneElements(activeMap.scene)) {
+      const timestamp = createSnapshotTimestamp();
+      const categories = cloneCategories(state.categories);
+      const category = categories[activeCategory.id];
+      category.maps[activeMap.id].contentInitializedAt = timestamp;
+      category.maps[activeMap.id].updatedAt = timestamp;
+      category.updatedAt = timestamp;
+
+      set({
+        categories,
+        snapshotUpdatedAt: timestamp,
+      });
+      return;
+    }
+
+    const parentMap =
+      activeMap.parentMapId && activeCategory.maps[activeMap.parentMapId]
+        ? activeCategory.maps[activeMap.parentMapId]
+        : null;
+    const parentNode =
+      parentMap && activeMap.parentNodeId ? parentMap.nodes[activeMap.parentNodeId] ?? null : null;
+
+    if (!parentNode) {
+      const timestamp = createSnapshotTimestamp();
+      const categories = cloneCategories(state.categories);
+      const category = categories[activeCategory.id];
+      category.maps[activeMap.id].contentInitializedAt = timestamp;
+      category.maps[activeMap.id].updatedAt = timestamp;
+      category.updatedAt = timestamp;
+
+      set({
+        categories,
+        snapshotUpdatedAt: timestamp,
+      });
+      return;
+    }
+
+    const seededScene = await buildSeededChildScene(activeMap, parentNode);
+    const freshState = get();
+    const freshCategory = freshState.categories[activeCategory.id] ?? null;
+    const freshMap = freshCategory?.maps[activeMap.id] ?? null;
+
+    if (!freshCategory || !freshMap || freshMap.contentInitializedAt) {
+      return;
+    }
+
+    const categories = cloneCategories(freshState.categories);
+    const category = categories[activeCategory.id];
+    const map = category.maps[activeMap.id];
+
+    if (!hasRenderableSceneElements(map.scene)) {
+      map.scene = {
+        ...map.scene,
+        elements: seededScene.elements,
+        files: {
+          ...map.scene.files,
+          ...seededScene.files,
+        },
+      };
+    }
+
+    map.contentInitializedAt = seededScene.timestamp;
+    map.updatedAt = seededScene.timestamp;
+    category.updatedAt = seededScene.timestamp;
+
+    set({
+      categories,
+      snapshotUpdatedAt: seededScene.timestamp,
     });
   },
   getProjectSnapshot: () => {

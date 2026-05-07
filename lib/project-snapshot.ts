@@ -337,6 +337,7 @@ export function createEmptyMap(args: {
   parentMapId?: string | null;
   parentNodeId?: string | null;
   rootSectionId?: StudySectionId | null;
+  contentInitializedAt?: string | null;
   createdAt?: string;
 }): StudyMap {
   const timestamp = args.createdAt ?? createTimestamp();
@@ -348,6 +349,7 @@ export function createEmptyMap(args: {
     parentMapId: args.parentMapId ?? null,
     parentNodeId: args.parentNodeId ?? null,
     rootSectionId: args.rootSectionId ?? null,
+    contentInitializedAt: args.contentInitializedAt ?? null,
     nodes: {},
     scene: createEmptySceneState(),
     createdAt: timestamp,
@@ -364,7 +366,7 @@ export function createNodeSceneElements(args: {
   createdAt?: string;
   order?: number;
 }): ExcalidrawSceneState["elements"] {
-  const label = args.label.trim() || "Nuevo nodo";
+  const label = args.label.trim() || "Nueva tarjeta";
   const timestamp = createElementUpdatedAt(args.createdAt);
   const size = args.size ?? { width: 320, height: 160 };
   const textBounds = estimateTextBounds(label);
@@ -407,7 +409,7 @@ export function createNodeSceneElements(args: {
       locked: false,
       customData: {
         nodeId: args.nodeId,
-        role: "container",
+        role: "map-card-container",
       },
     },
     {
@@ -439,7 +441,7 @@ export function createNodeSceneElements(args: {
       locked: false,
       customData: {
         nodeId: args.nodeId,
-        role: "label",
+        role: "map-card-label",
       },
       fontSize: DEFAULT_FONT_SIZE,
       fontFamily: 1,
@@ -486,7 +488,7 @@ function migrateLegacyCardsToMap(args: {
   const elements = orderedCards.flatMap((card, index) => {
     const childMapId = buildChildMapId(card.id);
     const { elementId, labelElementId } = buildNodeElementIds(card.id);
-    const label = card.text.trim() || "Nodo sin titulo";
+    const label = card.text.trim() || "Tarjeta sin titulo";
 
     map.nodes[card.id] = {
       nodeId: card.id,
@@ -589,7 +591,7 @@ function normalizeNodeMeta(nodeId: string, value: unknown): MapNodeMeta | null {
     nodeId,
     elementId: String(source.elementId),
     labelElementId: String(source.labelElementId),
-    label: typeof source.label === "string" && source.label.trim() ? source.label.trim() : "Nodo sin titulo",
+    label: typeof source.label === "string" && source.label.trim() ? source.label.trim() : "Tarjeta sin titulo",
     childMapId: String(source.childMapId),
     note: typeof source.note === "string" ? source.note : "",
     image: normalizeQuestionCardImage(source.image),
@@ -625,6 +627,10 @@ function normalizeStudyMap(mapId: string, value: unknown): StudyMap {
     rootSectionId: FIXED_SECTION_IDS.includes(source.rootSectionId as StudySectionId)
       ? (source.rootSectionId as StudySectionId)
       : null,
+    contentInitializedAt:
+      typeof source.contentInitializedAt === "string" && source.contentInitializedAt
+        ? source.contentInitializedAt
+        : null,
     nodes,
     scene: {
       elements: normalizeSceneElements(asRecord(source.scene).elements),

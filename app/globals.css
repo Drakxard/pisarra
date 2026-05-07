@@ -482,6 +482,170 @@ img {
   background: rgba(146, 40, 31, 0.92);
 }
 
+.immersive-map-shell {
+  position: relative;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(255, 241, 224, 0.9), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(224, 236, 255, 0.68), transparent 30%),
+    #f7f2ea;
+  overflow: hidden;
+}
+
+.immersive-map-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.map-hud {
+  position: absolute;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  pointer-events: none;
+}
+
+.map-hud > * {
+  pointer-events: auto;
+}
+
+.map-hud--breadcrumbs {
+  top: 1rem;
+  left: 1rem;
+  right: min(26rem, calc(100vw - 2rem));
+  flex-wrap: wrap;
+}
+
+.map-hud--search {
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.map-hud--selection {
+  left: 1rem;
+  bottom: 1rem;
+}
+
+.map-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(146, 123, 95, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 252, 246, 0.82);
+  backdrop-filter: blur(14px);
+}
+
+.map-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--foreground-muted);
+}
+
+.map-breadcrumb-sep {
+  color: rgba(111, 83, 52, 0.44);
+}
+
+.map-breadcrumb-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.map-search--floating {
+  width: min(25rem, calc(100vw - 2rem));
+}
+
+.map-search--floating input {
+  border-radius: 999px;
+  border: 1px solid rgba(146, 123, 95, 0.24);
+  background: rgba(255, 252, 246, 0.84);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 34px rgba(62, 43, 25, 0.08);
+}
+
+.map-top-right-ui {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.map-floating-button {
+  border: 1px solid rgba(146, 123, 95, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 252, 246, 0.82);
+  color: var(--foreground);
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  font: inherit;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 28px rgba(62, 43, 25, 0.08);
+}
+
+.map-floating-button.is-accent {
+  background: rgba(215, 127, 44, 0.92);
+  color: #fff8f1;
+}
+
+.map-selection-pill {
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  background: rgba(22, 22, 22, 0.86);
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.18);
+}
+
+.map-inspector {
+  position: absolute;
+  z-index: 30;
+  top: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  width: min(24rem, calc(100vw - 2rem));
+  padding: 1rem;
+  border: 1px solid rgba(146, 123, 95, 0.24);
+  border-radius: 1.6rem;
+  background: rgba(255, 252, 246, 0.92);
+  backdrop-filter: blur(18px);
+  overflow: auto;
+  box-shadow: 0 26px 54px rgba(62, 43, 25, 0.12);
+  transform: translateX(calc(100% + 1rem));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 180ms ease,
+    opacity 180ms ease;
+}
+
+.map-inspector.is-open {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.map-inspector-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.map-inspector-image {
+  display: block;
+  width: 100%;
+  border-radius: 1rem;
+  box-shadow: inset 0 0 0 1px var(--frame);
+}
+
 @media (max-width: 980px) {
   .map-editor-body {
     grid-template-columns: 1fr;
@@ -533,6 +697,41 @@ img {
 
   .map-search {
     width: 100%;
+  }
+
+  .map-hud--breadcrumbs {
+    right: 1rem;
+  }
+
+  .map-hud--search {
+    top: auto;
+    left: 1rem;
+    right: 1rem;
+    bottom: 4.7rem;
+    transform: none;
+  }
+
+  .map-search--floating {
+    width: 100%;
+  }
+
+  .map-top-right-ui {
+    gap: 0.55rem;
+    justify-content: flex-end;
+  }
+
+  .map-inspector {
+    top: auto;
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+    width: auto;
+    max-height: min(26rem, 62vh);
+    transform: translateY(calc(100% + 1rem));
+  }
+
+  .map-inspector.is-open {
+    transform: translateY(0);
   }
 
   .category-rail {

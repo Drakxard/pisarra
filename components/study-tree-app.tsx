@@ -81,39 +81,6 @@ function collectSearchHits(map: StudyMap | null, query: string) {
     .sort((left, right) => right.score - left.score);
 }
 
-function fileToNodeImage(file: File) {
-  const previewUrl = URL.createObjectURL(file);
-
-  return new Promise<{
-    blob: Blob;
-    previewUrl: string;
-    mimeType: string;
-    name: string;
-    width?: number;
-    height?: number;
-  }>((resolve, reject) => {
-    const image = new Image();
-
-    image.onload = () => {
-      resolve({
-        blob: file,
-        previewUrl,
-        mimeType: file.type || "image/png",
-        name: file.name || "image.png",
-        width: image.naturalWidth || undefined,
-        height: image.naturalHeight || undefined,
-      });
-    };
-
-    image.onerror = () => {
-      URL.revokeObjectURL(previewUrl);
-      reject(new Error("No se pudo leer la imagen."));
-    };
-
-    image.src = previewUrl;
-  });
-}
-
 function getNodeFromSelection(map: StudyMap | null, selectedElementIds: Record<string, boolean>) {
   if (!map) {
     return null;
@@ -128,6 +95,38 @@ function getNodeFromSelection(map: StudyMap | null, selectedElementIds: Record<s
   }
 
   return null;
+}
+
+function getNodeFromElementId(map: StudyMap | null, elementId: string | null | undefined) {
+  if (!map || !elementId) {
+    return null;
+  }
+
+  return (
+    Object.values(map.nodes).find(
+      (node) => node.elementId === elementId || node.labelElementId === elementId,
+    ) ?? null
+  );
+}
+
+function serializeCanvasScene(api: ExcalidrawImperativeAPI): ExcalidrawSceneState {
+  const appState = api.getAppState();
+
+  return {
+    elements: api
+      .getSceneElementsIncludingDeleted()
+      .filter((element) => element.type !== "selection")
+      .map((element) => ({ ...element })),
+    appState: {
+      scrollX: appState.scrollX,
+      scrollY: appState.scrollY,
+      zoom: appState.zoom,
+      viewBackgroundColor: appState.viewBackgroundColor,
+      theme: appState.theme,
+      gridSize: appState.gridSize,
+    },
+    files: { ...api.getFiles() },
+  };
 }
 
 function HomeScreen({
@@ -184,6 +183,8 @@ function HomeScreen({
             }}
           >
             <input
+              id="category-create-name"
+              name="category_create_name"
               value={draft}
               onChange={(event) => setDraft(event.currentTarget.value)}
               placeholder="Nueva materia"
@@ -229,6 +230,8 @@ function HomeScreen({
                 }}
               >
                 <input
+                  id={`category-rename-${selectedCategory.id}`}
+                  name="category_rename_name"
                   className="category-rename-input"
                   value={renameDraft}
                   autoFocus
@@ -272,17 +275,15 @@ export function StudyTreeApp() {
     selectCategory,
     openMainCategoryMap,
     openCategorySection,
+    openMap,
     openNodeChildMap,
     goToParentMap,
     closeActiveMap,
     selectNode,
     createMapNode,
-    updateNodeLabel,
-    updateNodeNote,
-    setNodeImage,
-    clearNodeImage,
     deleteNode,
     setMapScene,
+    initializeMapContent,
     getProjectSnapshot,
     getPendingImageAssets,
     markNodeImagesPersisted,
@@ -297,9 +298,11 @@ export function StudyTreeApp() {
   const [searchText, setSearchText] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const lastPersistedProjectSignatureRef = useRef("");
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  const sceneSyncSignatureRef = useRef("");
 
   const categoriesList = useMemo(() => Object.values(categories), [categories]);
   const selectedCategory =
@@ -310,6 +313,7 @@ export function StudyTreeApp() {
   const activeMap = activeCategory && activeMapId ? activeCategory.maps[activeMapId] ?? null : null;
   const selectedNode = activeMap && selectedNodeId ? activeMap.nodes[selectedNodeId] ?? null : null;
   const projectSignature = JSON.stringify(getProjectSnapshot());
+  const activeMapSceneSignature = activeMap ? JSON.stringify(activeMap.scene) : "";
   const searchHits = useMemo(() => collectSearchHits(activeMap, searchText), [activeMap, searchText]);
   const activeSearchHit = searchHits.length > 0 ? searchHits[searchIndex % searchHits.length] : null;
 
@@ -486,6 +490,67 @@ export function StudyTreeApp() {
     setSearchIndex(0);
   }, [searchText, activeMapId]);
 
+  useEffect(() => {
+    if (!activeMapId) {
+      setIsInspectorOpen(false);
+      return;
+    }
+
+    void initializeMapContent(activeMapId);
+  }, [activeMapId, initializeMapContent]);
+
+  useEffect(() => {
+    if (selectedNode) {
+      setIsInspectorOpen(true);
+    }
+  }, [selectedNode?.nodeId]);
+
+  useEffect(() => {
+    const api = excalidrawApiRef.current;
+
+    if (!api || !activeMap) {
+      sceneSyncSignatureRef.current = "";
+      return;
+    }
+
+    const canvasScene = serializeCanvasScene(api);
+    const canvasSignature = JSON.stringify(canvasScene);
+
+    if (canvasSignature === activeMapSceneSignature) {
+      sceneSyncSignatureRef.current = activeMapSceneSignature;
+      return;
+    }
+
+    if (sceneSyncSignatureRef.current === activeMapSceneSignature) {
+      return;
+    }
+
+    sceneSyncSignatureRef.current = activeMapSceneSignature;
+
+    const sceneFiles = Object.values(activeMap.scene.files);
+
+    if (sceneFiles.length > 0) {
+      api.addFiles(sceneFiles as never);
+    }
+
+    api.updateScene({
+      elements: activeMap.scene.elements as never,
+      appState: activeMap.scene.appState as never,
+    });
+  }, [activeMap, activeMapSceneSignature]);
+
+  useEffect(() => {
+    const api = excalidrawApiRef.current;
+
+    if (!api || !activeMap) {
+      return;
+    }
+
+    return api.onPointerUp((_, pointerDownState, event) => {
+      handleCardPointerUp(event, pointerDownState.hit.element?.id, pointerDownState.drag.hasOccurred);
+    });
+  }, [activeMap?.id]);
+
   const pickProjectDirectory = async () => {
     setIsPickingDirectory(true);
     setBootError(null);
@@ -526,7 +591,7 @@ export function StudyTreeApp() {
     const api = excalidrawApiRef.current;
 
     if (!api) {
-      void createMapNode("Nuevo nodo");
+      void createMapNode("Nueva tarjeta");
       return;
     }
 
@@ -535,15 +600,28 @@ export function StudyTreeApp() {
     const x = Math.round((appState.width / 2 - appState.scrollX) / zoomValue - 160);
     const y = Math.round((appState.height / 2 - appState.scrollY) / zoomValue - 80);
 
-    const nodeId = createMapNode("Nuevo nodo", { x, y });
+    const nodeId = createMapNode("Nueva tarjeta", { x, y });
 
     if (nodeId) {
       selectNode(nodeId);
+      setIsInspectorOpen(true);
     }
   };
 
   const handleSceneChange = useEffectEvent((scene: ExcalidrawSceneState) => {
     setMapScene(scene);
+  });
+
+  const handleCardPointerUp = useEffectEvent((event: PointerEvent, elementId: string | null | undefined, dragged: boolean) => {
+    if (dragged || event.detail < 2) {
+      return;
+    }
+
+    const node = getNodeFromElementId(activeMap, elementId);
+
+    if (node) {
+      openNodeChildMap(node.nodeId);
+    }
   });
 
   const breadcrumbs = useMemo(() => {
@@ -630,206 +708,249 @@ export function StudyTreeApp() {
           onRenameCategory={renameCategory}
         />
       ) : (
-        <section className="map-editor">
-          <div className="map-topbar">
+        <section className="immersive-map-shell">
+          <div className="map-hud map-hud--breadcrumbs">
+            <button type="button" className="map-floating-button" onClick={closeActiveMap}>
+              Materias
+            </button>
+            {activeMap.parentMapId ? (
+              <button type="button" className="map-floating-button" onClick={goToParentMap}>
+                Subir
+              </button>
+            ) : null}
             <div className="map-breadcrumbs">
-              <button type="button" className="map-toolbar-button" onClick={closeActiveMap}>
-                Materias
-              </button>
-              {activeMap.parentMapId ? (
-                <button type="button" className="map-toolbar-button" onClick={goToParentMap}>
-                  Subir
-                </button>
-              ) : null}
-              {breadcrumbs.map((item, index) => (
-                <span key={item.id} className="map-breadcrumb">
-                  {index > 0 ? <span className="map-breadcrumb-sep">/</span> : null}
-                  {item.label}
-                </span>
-              ))}
-            </div>
-            <div className="map-topbar-actions">
-              <label className="map-search">
-                <span>Buscar</span>
-                <input
-                  value={searchText}
-                  placeholder="Buscar nodos"
-                  onChange={(event) => setSearchText(event.currentTarget.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      if (searchHits.length > 0) {
-                        setSearchIndex((current) => (current + 1) % searchHits.length);
-                      }
-                    }
-                  }}
-                />
-              </label>
-              <button type="button" className="map-toolbar-button is-accent" onClick={createNodeAtViewportCenter}>
-                Nuevo nodo
-              </button>
+              {breadcrumbs.map((item, index) => {
+                const isLast = index === breadcrumbs.length - 1;
+
+                return (
+                  <span key={item.id} className="map-breadcrumb">
+                    {index > 0 ? <span className="map-breadcrumb-sep">/</span> : null}
+                    {item.mapId && !isLast ? (
+                      <button
+                        type="button"
+                        className="map-breadcrumb-button"
+                        onClick={() => openMap(activeCategory.id, item.mapId!)}
+                      >
+                        {item.label}
+                      </button>
+                    ) : (
+                      <span>{item.label}</span>
+                    )}
+                  </span>
+                );
+              })}
             </div>
           </div>
 
-          <div className="map-editor-body">
-            <div className="map-canvas-panel">
-              <ExcalidrawMapCanvas
-                key={`${activeCategory.id}:${activeMap.id}`}
-                initialData={
-                  {
-                    elements: activeMap.scene.elements,
-                    appState: activeMap.scene.appState,
-                    files: activeMap.scene.files,
-                    scrollToContent: false,
-                  } as never
-                }
-                excalidrawAPI={(api) => {
-                  excalidrawApiRef.current = api;
-                }}
-                zenModeEnabled
-                viewModeEnabled={false}
-                UIOptions={{
-                  canvasActions: {
-                    clearCanvas: false,
-                    export: false,
-                    loadScene: false,
-                    saveToActiveFile: false,
-                    toggleTheme: false,
-                    changeViewBackgroundColor: false,
-                    saveAsImage: false,
-                  },
-                  tools: {
-                    image: false,
-                  },
-                }}
-                onChange={(elements, appState, files) => {
-                  handleSceneChange({
-                    elements: [...elements],
-                    appState: {
-                      scrollX: appState.scrollX,
-                      scrollY: appState.scrollY,
-                      zoom: appState.zoom,
-                      viewBackgroundColor: appState.viewBackgroundColor,
-                      theme: appState.theme,
-                      gridSize: appState.gridSize,
-                    },
-                    files: { ...files },
-                  });
-                  selectNode(getNodeFromSelection(activeMap, appState.selectedElementIds) ?? null);
+          <div className="map-hud map-hud--search">
+            <label className="map-search map-search--floating" htmlFor="map-search">
+              <span>Buscar</span>
+              <input
+                id="map-search"
+                name="map_search"
+                value={searchText}
+                placeholder="Buscar tarjetas por nombre o nota"
+                onChange={(event) => setSearchText(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    if (searchHits.length > 0) {
+                      setSearchIndex((current) => (current + 1) % searchHits.length);
+                    }
+                  }
                 }}
               />
-              {searchText && searchHits.length === 0 ? (
-                <div className="search-feedback" aria-live="polite">
-                  No se encontraron nodos.
-                </div>
-              ) : null}
-              {persistenceError ? (
-                <div className="map-sync-status is-error" aria-live="polite">
-                  {persistenceError}
-                </div>
-              ) : null}
-            </div>
+            </label>
+          </div>
 
-            <aside className="node-side-panel">
-              {selectedNode ? (
-                <>
-                  <div className="node-side-header">
-                    <div>
-                      <span className="node-side-eyebrow">Nodo</span>
-                      <h2>{selectedNode.label}</h2>
-                    </div>
-                    <div className="node-side-actions">
-                      <button
-                        type="button"
-                        className="map-toolbar-button is-accent"
-                        onClick={() => openNodeChildMap(selectedNode.nodeId)}
-                      >
-                        Entrar
-                      </button>
-                      <button
-                        type="button"
-                        className="map-toolbar-button is-danger"
-                        onClick={() => deleteNode(selectedNode.nodeId)}
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  </div>
-
-                  <label className="node-form-field">
-                    <span>Titulo</span>
-                    <input
-                      value={selectedNode.label}
-                      onChange={(event) => updateNodeLabel(selectedNode.nodeId, event.currentTarget.value)}
-                    />
-                  </label>
-
-                  <label className="node-form-field">
-                    <span>Nota</span>
-                    <textarea
-                      value={selectedNode.note}
-                      rows={9}
-                      onChange={(event) => updateNodeNote(selectedNode.nodeId, event.currentTarget.value)}
-                    />
-                  </label>
-
-                  <div className="node-form-field">
-                    <span>Imagen principal</span>
-                    {selectedNode.image?.previewUrl ? (
-                      <div className="node-image-card">
-                        <img src={selectedNode.image.previewUrl} alt={selectedNode.image.name} />
-                        <button
-                          type="button"
-                          className="map-toolbar-button"
-                          onClick={() => clearNodeImage(selectedNode.nodeId)}
-                        >
-                          Quitar imagen
-                        </button>
-                      </div>
-                    ) : null}
-                    <label className="node-image-upload">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => {
-                          const file = event.currentTarget.files?.[0];
-
-                          if (!file) {
-                            return;
-                          }
-
-                          void fileToNodeImage(file).then((image) => {
-                            setNodeImage(selectedNode.nodeId, image);
-                            event.currentTarget.value = "";
-                          });
-                        }}
-                      />
-                      <span>{selectedNode.image ? "Cambiar imagen" : "Subir imagen"}</span>
-                    </label>
-                  </div>
-
-                  {selectedNode.legacyDetails ? (
-                    <div className="legacy-details-card">
-                      <span className="node-side-eyebrow">Contenido legado</span>
-                      <p>Se preservo del proyecto anterior y queda en modo solo lectura.</p>
-                      <ul className="legacy-details-list">
-                        <li>Tabla: {selectedNode.legacyDetails.detailsTable ? "si" : "no"}</li>
-                        <li>Imagenes: {selectedNode.legacyDetails.detailsImages?.length ?? 0}</li>
-                        <li>Cajas de texto: {selectedNode.legacyDetails.detailsTextBoxes?.length ?? 0}</li>
-                        <li>Referencias: {selectedNode.legacyDetails.exerciseReferences?.length ?? 0}</li>
-                      </ul>
-                    </div>
+          <div className="immersive-map-canvas">
+            <ExcalidrawMapCanvas
+              key={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}`}
+              initialData={
+                {
+                  elements: activeMap.scene.elements,
+                  appState: activeMap.scene.appState,
+                  files: activeMap.scene.files,
+                  scrollToContent: false,
+                } as never
+              }
+              excalidrawAPI={(api) => {
+                excalidrawApiRef.current = api;
+              }}
+              viewModeEnabled={false}
+              renderTopRightUI={() => (
+                <div className="map-top-right-ui">
+                  <button
+                    type="button"
+                    className="map-floating-button is-accent"
+                    onClick={createNodeAtViewportCenter}
+                  >
+                    Nueva tarjeta
+                  </button>
+                  {selectedNode ? (
+                    <button
+                      type="button"
+                      className="map-floating-button"
+                      onClick={() => openNodeChildMap(selectedNode.nodeId)}
+                    >
+                      Entrar
+                    </button>
                   ) : null}
-                </>
-              ) : (
-                <div className="node-side-empty">
-                  <span className="node-side-eyebrow">Mapa</span>
-                  <h2>{activeMap.title}</h2>
-                  <p>Selecciona un nodo del lienzo o crea uno nuevo para navegar a su submapa.</p>
+                  <button
+                    type="button"
+                    className="map-floating-button"
+                    onClick={() => setIsInspectorOpen((current) => !current)}
+                  >
+                    {isInspectorOpen ? "Ocultar panel" : "Panel"}
+                  </button>
                 </div>
               )}
-            </aside>
+              UIOptions={{
+                canvasActions: {
+                  clearCanvas: true,
+                  export: {
+                    saveFileToDisk: true,
+                  },
+                  loadScene: false,
+                  saveToActiveFile: false,
+                  toggleTheme: true,
+                  changeViewBackgroundColor: true,
+                  saveAsImage: true,
+                },
+                tools: {
+                  image: true,
+                },
+              }}
+              onChange={(elements, appState, files) => {
+                handleSceneChange({
+                  elements: [...elements],
+                  appState: {
+                    scrollX: appState.scrollX,
+                    scrollY: appState.scrollY,
+                    zoom: appState.zoom,
+                    viewBackgroundColor: appState.viewBackgroundColor,
+                    theme: appState.theme,
+                    gridSize: appState.gridSize,
+                  },
+                  files: { ...files },
+                });
+                selectNode(getNodeFromSelection(activeMap, appState.selectedElementIds) ?? null);
+              }}
+            />
+
+            {selectedNode ? (
+              <div className="map-hud map-hud--selection">
+                <span className="map-selection-pill">
+                  Tarjeta activa: <strong>{selectedNode.label}</strong>
+                </span>
+              </div>
+            ) : null}
+
+            {searchText && searchHits.length === 0 ? (
+              <div className="search-feedback" aria-live="polite">
+                No se encontraron tarjetas.
+              </div>
+            ) : null}
+            {persistenceError ? (
+              <div className="map-sync-status is-error" aria-live="polite">
+                {persistenceError}
+              </div>
+            ) : null}
           </div>
+
+          <aside className={`map-inspector ${isInspectorOpen ? "is-open" : ""}`}>
+            {selectedNode ? (
+              <>
+                <div className="map-inspector-header">
+                  <div>
+                    <span className="node-side-eyebrow">Tarjeta</span>
+                    <h2>{selectedNode.label}</h2>
+                  </div>
+                  <button
+                    type="button"
+                    className="map-floating-button"
+                    onClick={() => setIsInspectorOpen(false)}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+
+                <div className="node-side-empty">
+                  <p>Haz doble click en la tarjeta para entrar a su submapa o usa el boton de acceso rapido.</p>
+                </div>
+
+                <div className="node-side-actions">
+                  <button
+                    type="button"
+                    className="map-toolbar-button is-accent"
+                    onClick={() => openNodeChildMap(selectedNode.nodeId)}
+                  >
+                    Entrar al submapa
+                  </button>
+                  <button
+                    type="button"
+                    className="map-toolbar-button is-danger"
+                    onClick={() => deleteNode(selectedNode.nodeId)}
+                  >
+                    Eliminar tarjeta
+                  </button>
+                </div>
+
+                {selectedNode.note ? (
+                  <div className="legacy-details-card">
+                    <span className="node-side-eyebrow">Nota heredada</span>
+                    <p>{selectedNode.note}</p>
+                  </div>
+                ) : null}
+
+                {selectedNode.image?.previewUrl ? (
+                  <div className="legacy-details-card">
+                    <span className="node-side-eyebrow">Imagen heredada</span>
+                    <img
+                      className="map-inspector-image"
+                      src={selectedNode.image.previewUrl}
+                      alt={selectedNode.image.name}
+                    />
+                  </div>
+                ) : null}
+
+                {selectedNode.legacyDetails ? (
+                  <div className="legacy-details-card">
+                    <span className="node-side-eyebrow">Contenido legado</span>
+                    <p>Se preservo del proyecto anterior y se mantiene solo como referencia.</p>
+                    <ul className="legacy-details-list">
+                      <li>Tabla: {selectedNode.legacyDetails.detailsTable ? "si" : "no"}</li>
+                      <li>Imagenes: {selectedNode.legacyDetails.detailsImages?.length ?? 0}</li>
+                      <li>Cajas de texto: {selectedNode.legacyDetails.detailsTextBoxes?.length ?? 0}</li>
+                      <li>Referencias: {selectedNode.legacyDetails.exerciseReferences?.length ?? 0}</li>
+                    </ul>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div className="map-inspector-header">
+                  <div>
+                    <span className="node-side-eyebrow">Mapa</span>
+                    <h2>{activeMap.title}</h2>
+                  </div>
+                  <button
+                    type="button"
+                    className="map-floating-button"
+                    onClick={() => setIsInspectorOpen(false)}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+                <div className="node-side-empty">
+                  <p>
+                    Excalidraw es ahora la superficie principal. Crea una tarjeta para generar un submapa y usa el
+                    resto del lienzo para texto, dibujo, imagenes y conexiones.
+                  </p>
+                </div>
+              </>
+            )}
+          </aside>
         </section>
       )}
     </main>
