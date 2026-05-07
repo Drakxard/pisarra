@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { ExcalidrawMapCanvas } from "@/components/excalidraw-map-canvas";
 import {
@@ -320,6 +320,10 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const sceneSyncSignatureRef = useRef("");
   const sceneAppliedRef = useRef(false);
   const ignoredEmptyMountChangeRef = useRef(false);
+  const activeCategoryRef = useRef<StudyCategory | null>(null);
+  const activeMapRef = useRef<StudyMap | null>(null);
+  const buildInfoRef = useRef(buildInfo);
+  const runtimeSceneRef = useRef<ExcalidrawSceneState | null>(null);
 
   const categoriesList = useMemo(() => Object.values(categories), [categories]);
   const selectedCategory =
@@ -364,6 +368,13 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
           ? "canvas-error"
           : "map-loading"
       : "home";
+
+  useEffect(() => {
+    activeCategoryRef.current = activeCategory;
+    activeMapRef.current = activeMap;
+    buildInfoRef.current = buildInfo;
+    runtimeSceneRef.current = runtimeScene;
+  }, [activeCategory, activeMap, buildInfo, runtimeScene]);
 
   const centerNodeInViewport = useEffectEvent((node: MapNodeMeta) => {
     const api = excalidrawApiRef.current;
@@ -773,27 +784,31 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     setCanvasRetryKey((current) => current + 1);
   };
 
-  const handleCanvasApi = useEffectEvent((api: ExcalidrawImperativeAPI) => {
+  const handleCanvasApi = useCallback((api: ExcalidrawImperativeAPI) => {
     excalidrawApiRef.current = api;
-    console.info("[StudyTree] canvas-api-ready", {
-      build: buildInfo,
-      categoryId: activeCategory?.id ?? null,
-      mapId: activeMap?.id ?? null,
-    });
-    setCanvasStatus((current) => (current === "error" ? current : "ready"));
-  });
 
-  const handleSceneChange = useEffectEvent((scene: ExcalidrawSceneState) => {
-    const persistedElementCount = runtimeScene?.elements.filter((element) => !element.isDeleted).length ?? 0;
+    queueMicrotask(() => {
+      console.info("[StudyTree] canvas-api-ready", {
+        build: buildInfoRef.current,
+        categoryId: activeCategoryRef.current?.id ?? null,
+        mapId: activeMapRef.current?.id ?? null,
+      });
+      setCanvasStatus((current) => (current === "error" ? current : "ready"));
+    });
+  }, []);
+
+  const handleSceneChange = useCallback((scene: ExcalidrawSceneState) => {
+    const persistedElementCount =
+      runtimeSceneRef.current?.elements.filter((element) => !element.isDeleted).length ?? 0;
     const nextElementCount = scene.elements.filter((element) => !element.isDeleted).length;
 
     if (!sceneAppliedRef.current && persistedElementCount > 0 && nextElementCount === 0) {
       if (!ignoredEmptyMountChangeRef.current) {
         ignoredEmptyMountChangeRef.current = true;
         console.warn("[StudyTree] ignored-empty-mount-change", {
-          build: buildInfo,
-          categoryId: activeCategory?.id ?? null,
-          mapId: activeMap?.id ?? null,
+          build: buildInfoRef.current,
+          categoryId: activeCategoryRef.current?.id ?? null,
+          mapId: activeMapRef.current?.id ?? null,
           persistedElementCount,
         });
       }
@@ -801,7 +816,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
 
     setMapScene(scene);
-  });
+  }, [setMapScene]);
 
   const handleCardPointerUp = useEffectEvent((event: PointerEvent, elementId: string | null | undefined, dragged: boolean) => {
     if (dragged || event.detail < 2) {
