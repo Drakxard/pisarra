@@ -1,3 +1,9 @@
+import type { BinaryFiles } from "@excalidraw/excalidraw/types";
+
+export const FIXED_SECTION_IDS = ["definitions", "theorems", "exams", "exercises"] as const;
+
+export type StudySectionId = (typeof FIXED_SECTION_IDS)[number];
+
 export type CardPosition = {
   x: number;
   y: number;
@@ -58,11 +64,6 @@ export type DetailsTextBox = {
   linkUrl?: string | null;
 };
 
-export type DetailsTextBoxStyleDefaults = Pick<
-  DetailsTextBox,
-  "fontSize" | "color" | "bold" | "strike" | "bulleted" | "align"
->;
-
 export type ExerciseReferenceItem = {
   id: string;
   sourceSectionId: "definitions" | "theorems";
@@ -75,7 +76,7 @@ export type ExerciseReferenceItem = {
   updatedAt: string;
 };
 
-export type QuestionCard = {
+export type LegacyQuestionCard = {
   id: string;
   text: string;
   detailsText: string;
@@ -91,69 +92,121 @@ export type QuestionCard = {
   updatedAt: string;
 };
 
-export type DraftImage = {
-  blob: Blob;
-  previewUrl: string;
-  mimeType: string;
+export type LegacyStudySection = {
+  id: string;
   name: string;
-  width?: number;
-  height?: number;
+  cards: Record<string, LegacyQuestionCard>;
+  selectedCardId: string | null;
+  draftText: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
-export type DraftState = {
-  text: string;
-  image: DraftImage | null;
+export type LegacyStudyCategory = {
+  id: string;
+  name: string;
+  cards: Record<string, LegacyQuestionCard>;
+  selectedCardId: string | null;
+  draftText: string;
+  sections: Record<string, LegacyStudySection>;
+  activeSectionId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LegacyNodeDetails = {
+  detailsTable?: DetailsTable | null;
+  detailsImages?: DetailsImage[];
+  detailsTextBoxes?: DetailsTextBox[];
+  exerciseReferences?: ExerciseReferenceItem[];
+};
+
+export type NodeDetails = {
+  note: string;
+  image: QuestionCardImage | null;
+  legacyDetails?: LegacyNodeDetails | null;
+};
+
+export type PersistedExcalidrawAppState = Pick<
+  {
+    scrollX: number;
+    scrollY: number;
+    viewBackgroundColor: string;
+    theme: "light" | "dark";
+  },
+  "scrollX" | "scrollY" | "viewBackgroundColor" | "theme"
+> & {
+  zoom?: {
+    value: number;
+  };
+  gridSize?: number | null;
+};
+
+export type SerializableExcalidrawElement = {
+  id: string;
+  type: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isDeleted?: boolean;
+  [key: string]: unknown;
+};
+
+export type ExcalidrawSceneState = {
+  elements: SerializableExcalidrawElement[];
+  appState: PersistedExcalidrawAppState;
+  files: BinaryFiles;
+};
+
+export type MapNodeMeta = {
+  nodeId: string;
+  elementId: string;
+  labelElementId: string;
+  label: string;
+  childMapId: string;
+  note: string;
+  image: QuestionCardImage | null;
+  legacyDetails?: LegacyNodeDetails | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StudyMap = {
+  id: string;
+  title: string;
+  kind: "main" | "section" | "child";
+  parentMapId: string | null;
+  parentNodeId: string | null;
+  rootSectionId?: StudySectionId | null;
+  nodes: Record<string, MapNodeMeta>;
+  scene: ExcalidrawSceneState;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type StudyCategory = {
   id: string;
   name: string;
-  cards: Record<string, QuestionCard>;
-  selectedCardId: string | null;
-  draftText: string;
-  sections: Record<string, StudySection>;
-  activeSectionId?: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type StudySection = {
-  id: string;
-  name: string;
-  cards: Record<string, QuestionCard>;
-  selectedCardId: string | null;
-  draftText: string;
+  maps: Record<string, StudyMap>;
+  mainMapId: string;
+  sectionMapIds: Record<StudySectionId, string>;
   createdAt: string;
   updatedAt: string;
 };
 
 export type ProjectSnapshot = {
-  version: 6;
+  version: 7;
   categories: Record<string, StudyCategory>;
-  activeCategoryId: string | null;
-  activeMapKind?: "main" | "section" | null;
-  activeSectionId?: string | null;
-  categoryDraftText: string;
   selectedCategoryId: string | null;
-  cards?: Record<string, QuestionCard>;
-  selectedCardId?: string | null;
-  draftText?: string;
-  detailsTextBoxStyleDefaults?: DetailsTextBoxStyleDefaults;
+  categoryDraftText: string;
+  activeCategoryId: string | null;
+  activeMapId: string | null;
   savedAt: string;
 };
 
 export type PendingImageAsset = {
-  cardId: string;
+  nodeId: string;
   path: string;
   blob: Blob;
-  detailsImageId?: string;
-};
-
-export type SearchFeedback = "none" | "no-results";
-
-export type PasteFeedback = "none" | "image-error";
-
-export type SearchResult = {
-  cardId: string;
-  matchedText: string;
 };

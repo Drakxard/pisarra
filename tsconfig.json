@@ -39,6 +39,7 @@
   ],
   "exclude": [
     "node_modules",
-    "proyecto guia"
+    "proyecto guia",
+    "excalidraw-0.18.1"
   ]
 }

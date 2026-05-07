@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, Space_Grotesk } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const headingFont = Fraunces({
@@ -13,8 +14,8 @@ const bodyFont = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Study Space",
-  description: "Lienzo de dudas con escritura directa, imagenes pegadas y posiciones persistentes.",
+  title: "Study Maps",
+  description: "Mapas jerarquicos de estudio montados sobre Excalidraw.",
 };
 
 export default function RootLayout({
@@ -25,6 +26,9 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={`${headingFont.variable} ${bodyFont.variable}`}>
+        <Script id="excalidraw-asset-path" strategy="beforeInteractive">
+          {`window.EXCALIDRAW_ASSET_PATH = "/excalidraw/";`}
+        </Script>
         {children}
       </body>
     </html>

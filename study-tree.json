@@ -3,7 +3,7 @@
   "categories": {
     "84490347-c853-461d-9d68-7437b9d512ff": {
       "id": "84490347-c853-461d-9d68-7437b9d512ff",
-      "name": "Ejemplo",
+      "name": "Álgebra 2",
       "cards": {
         "12f4d6b9-bfe2-451a-8791-6a1e86569d96": {
           "id": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
@@ -20,7 +20,7 @@
             "x": 17,
             "y": 18.25
           },
-          "zIndex": 55,
+          "zIndex": 61,
           "createdAt": "2026-04-30T15:15:54.109Z",
           "updatedAt": "2026-05-02T19:20:15.030Z",
           "size": {
@@ -28,7 +28,9 @@
             "height": 262
           },
           "detailsTable": null,
-          "detailsImages": []
+          "detailsImages": [],
+          "detailsTextBoxes": [],
+          "exerciseReferences": []
         },
         "8ef54f07-07f0-4d55-aa07-c4f97939c0a6": {
           "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
@@ -39,7 +41,7 @@
             "x": 487,
             "y": 158
           },
-          "zIndex": 60,
+          "zIndex": 62,
           "createdAt": "2026-05-02T19:14:11.647Z",
           "updatedAt": "2026-05-02T21:09:22.338Z",
           "size": {
@@ -47,7 +49,9 @@
             "height": 58
           },
           "detailsTable": null,
-          "detailsImages": []
+          "detailsImages": [],
+          "detailsTextBoxes": [],
+          "exerciseReferences": []
         }
       },
       "selectedCardId": null,
@@ -74,7 +78,9 @@
               "size": {
                 "width": 384,
                 "height": 58
-              }
+              },
+              "detailsTextBoxes": [],
+              "exerciseReferences": []
             },
             "2b99c60c-b76b-4593-8ec4-12cfb9f97474": {
               "id": "2b99c60c-b76b-4593-8ec4-12cfb9f97474",
@@ -93,19 +99,21 @@
                 "x": 152,
                 "y": 211
               },
-              "zIndex": 30,
+              "zIndex": 37,
               "createdAt": "2026-05-02T20:40:29.501Z",
-              "updatedAt": "2026-05-02T21:06:25.966Z",
+              "updatedAt": "2026-05-06T19:55:47.180Z",
               "size": {
                 "width": 384,
                 "height": 145
-              }
+              },
+              "detailsTextBoxes": [],
+              "exerciseReferences": []
             }
           },
           "selectedCardId": null,
           "draftText": "",
           "createdAt": "2026-05-02T20:36:23.399Z",
-          "updatedAt": "2026-05-02T21:06:26.494Z"
+          "updatedAt": "2026-05-07T15:18:51.056Z"
         },
         "theorems": {
           "id": "theorems",
@@ -124,11 +132,20 @@
           "draftText": "",
           "createdAt": "2026-05-02T20:36:23.399Z",
           "updatedAt": "2026-05-02T21:09:11.601Z"
+        },
+        "exercises": {
+          "id": "exercises",
+          "name": "Ejercicios",
+          "cards": {},
+          "selectedCardId": null,
+          "draftText": "",
+          "createdAt": "2026-05-06T19:54:27.406Z",
+          "updatedAt": "2026-05-06T19:54:27.406Z"
         }
       },
-      "activeSectionId": "exams",
+      "activeSectionId": "definitions",
       "createdAt": "2026-05-02T20:15:43.876Z",
-      "updatedAt": "2026-05-02T21:09:22.542Z"
+      "updatedAt": "2026-05-07T15:18:51.056Z"
     },
     "8cba1abf-a832-4167-88e0-39adb306e5b2": {
       "id": "8cba1abf-a832-4167-88e0-39adb306e5b2",
@@ -140,11 +157,33 @@
         "definitions": {
           "id": "definitions",
           "name": "Definiciones",
-          "cards": {},
+          "cards": {
+            "f1197ac9-69ff-4361-8326-b4c2275c1898": {
+              "id": "f1197ac9-69ff-4361-8326-b4c2275c1898",
+              "text": "Algoritmo: Secuencia de pasos aritmetizables, finitos con el objetivo de resolver un determinado problema",
+              "detailsText": "",
+              "detailsTable": null,
+              "detailsImages": [],
+              "detailsTextBoxes": [],
+              "exerciseReferences": [],
+              "image": null,
+              "position": {
+                "x": 104,
+                "y": 112
+              },
+              "zIndex": 4,
+              "createdAt": "2026-05-06T19:57:48.276Z",
+              "updatedAt": "2026-05-07T15:18:49.960Z",
+              "size": {
+                "width": 384,
+                "height": 111
+              }
+            }
+          },
           "selectedCardId": null,
           "draftText": "",
           "createdAt": "2026-05-02T20:36:23.399Z",
-          "updatedAt": "2026-05-02T20:36:23.399Z"
+          "updatedAt": "2026-05-07T15:18:51.056Z"
         },
         "theorems": {
           "id": "theorems",
@@ -162,12 +201,21 @@
           "selectedCardId": null,
           "draftText": "",
           "createdAt": "2026-05-02T20:36:23.399Z",
-          "updatedAt": "2026-05-02T20:36:23.399Z"
+          "updatedAt": "2026-05-06T19:56:11.187Z"
+        },
+        "exercises": {
+          "id": "exercises",
+          "name": "Ejercicios",
+          "cards": {},
+          "selectedCardId": null,
+          "draftText": "",
+          "createdAt": "2026-05-06T19:54:27.407Z",
+          "updatedAt": "2026-05-06T19:56:11.187Z"
         }
       },
-      "activeSectionId": null,
+      "activeSectionId": "definitions",
       "createdAt": "2026-05-02T20:16:10.263Z",
-      "updatedAt": "2026-05-02T20:16:12.769Z"
+      "updatedAt": "2026-05-07T15:18:51.056Z"
     }
   },
   "activeCategoryId": null,
@@ -175,5 +223,13 @@
   "activeSectionId": null,
   "selectedCategoryId": "84490347-c853-461d-9d68-7437b9d512ff",
   "categoryDraftText": "",
-  "savedAt": "2026-05-02T21:09:25.243Z"
+  "detailsTextBoxStyleDefaults": {
+    "fontSize": "small",
+    "color": "#111111",
+    "bold": false,
+    "strike": false,
+    "bulleted": false,
+    "align": "left"
+  },
+  "savedAt": "2026-05-07T15:18:56.116Z"
 }

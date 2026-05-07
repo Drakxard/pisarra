@@ -28,9 +28,8 @@ export async function POST(request: Request) {
       cursor: body.cursor ?? null,
       surface: body.surface === "card-modal" ? "card-modal" : "map",
       activeCategoryId: body.activeCategoryId ?? null,
-      activeMapKind: body.activeMapKind ?? null,
-      activeSectionId: body.activeSectionId ?? null,
-      openedCardId: body.openedCardId ?? null,
+      activeMapId: body.activeMapId ?? null,
+      selectedNodeId: body.selectedNodeId ?? null,
     });
 
     return NextResponse.json({ ok: true });

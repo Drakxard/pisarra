@@ -1,16 +1,7 @@
 "use client";
 
-import type {
-  DetailsImage,
-  DetailsTable,
-  DetailsTextBox,
-  DetailsTextBoxStyleDefaults,
-  PendingImageAsset,
-  ProjectSnapshot,
-  QuestionCard,
-  StudyCategory,
-  StudySection,
-} from "@/lib/types";
+import { createEmptyProjectSnapshot, normalizeProjectSnapshot } from "@/lib/project-snapshot";
+import type { PendingImageAsset, ProjectSnapshot, QuestionCardImage } from "@/lib/types";
 
 const DB_NAME = "study-tree-projects";
 const DB_VERSION = 3;
@@ -20,74 +11,13 @@ const HANDLE_STORE_NAME = "handles";
 const DIRECTORY_KEY = "active-project-directory";
 const PROJECT_FILE_NAME = "study-tree.json";
 const ASSETS_DIRECTORY_NAME = "study-assets";
-const FIXED_SECTIONS = [
-  ["definitions", "Definiciones"],
-  ["theorems", "Teoremas"],
-  ["exams", "Parciales"],
-] as const;
 
 type FileSystemPermissionMode = "read" | "readwrite";
 type RawProjectSnapshot = Partial<Omit<ProjectSnapshot, "version">> & {
   version?: number;
+  categories?: Record<string, unknown>;
+  cards?: Record<string, unknown>;
 };
-
-function normalizeDetailsTextBoxStyleDefaults(
-  value: Partial<DetailsTextBoxStyleDefaults> | null | undefined,
-): DetailsTextBoxStyleDefaults {
-  return {
-    fontSize:
-      value?.fontSize === "medium" ||
-      value?.fontSize === "large" ||
-      value?.fontSize === "xlarge" ||
-      value?.fontSize === "huge"
-        ? value.fontSize
-        : "small",
-    color: typeof value?.color === "string" && value.color ? value.color : "#111111",
-    bold: value?.bold === true,
-    strike: value?.strike === true,
-    bulleted: value?.bulleted === true,
-    align: value?.align === "center" || value?.align === "right" ? value.align : "left",
-  };
-}
-
-export class IncompatibleProjectVersionError extends Error {
-  version: number | null;
-
-  constructor(version: number | null) {
-    super(
-      version === null
-        ? "El archivo del proyecto no tiene una version compatible."
-        : `El archivo del proyecto usa una version incompatible (${version}).`,
-    );
-    this.name = "IncompatibleProjectVersionError";
-    this.version = version;
-  }
-}
-
-export class MissingProjectFileError extends Error {
-  constructor() {
-    super(`No se encontro ${PROJECT_FILE_NAME}.`);
-    this.name = "MissingProjectFileError";
-  }
-}
-
-export class EmptyProjectFileError extends Error {
-  constructor() {
-    super(`${PROJECT_FILE_NAME} esta vacio.`);
-    this.name = "EmptyProjectFileError";
-  }
-}
-
-export class InvalidProjectFileError extends Error {
-  constructor(cause?: unknown) {
-    super(`No se pudo interpretar ${PROJECT_FILE_NAME}.`);
-    this.name = "InvalidProjectFileError";
-
-    if (cause !== undefined) {
-      this.cause = cause;
-    }
-  }
-}
 
 function openDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -141,6 +71,7 @@ function runIndexedDbRequest<T>(
         request.onsuccess = () => {
           result = request.result;
         };
+
         request.onerror = () => {
           if (settled) {
             return;
@@ -265,7 +196,6 @@ async function readImageAsset(handle: FileSystemDirectoryHandle, relativePath: s
   try {
     const fileHandle = await getRelativeFileHandle(handle, relativePath, false);
     const file = await fileHandle.getFile();
-
     return file;
   } catch (error) {
     if (
@@ -279,260 +209,55 @@ async function readImageAsset(handle: FileSystemDirectoryHandle, relativePath: s
   }
 }
 
-function normalizeDetailsTable(value: unknown): DetailsTable | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const table = value as Partial<DetailsTable>;
-  const cells = Array.isArray(table.cells)
-    ? table.cells.map((row) =>
-        Array.isArray(row) ? row.map((cell) => (typeof cell === "string" ? cell : "")) : [],
-      )
-    : [];
-
-  if (cells.length === 0) {
-    return null;
-  }
-
-  const columnCount = Math.max(1, ...cells.map((row) => row.length));
-  const normalizedCells = cells.map((row) =>
-    Array.from({ length: columnCount }, (_, index) => row[index] ?? ""),
-  );
-
+function cloneImageWithPreview(image: QuestionCardImage, previewUrl: string) {
   return {
-    cells: normalizedCells,
-    columnWidths: Array.from({ length: columnCount }, (_, index) => {
-      const width = table.columnWidths?.[index];
-      return typeof width === "number" && Number.isFinite(width) && width >= 72 ? width : 160;
-    }),
-    rowHeights: Array.from({ length: normalizedCells.length }, (_, index) => {
-      const height = table.rowHeights?.[index];
-      return typeof height === "number" && Number.isFinite(height) && height >= 36 ? height : 48;
-    }),
-    x: typeof table.x === "number" && Number.isFinite(table.x) ? Math.max(0, Math.round(table.x)) : 24,
-    y: typeof table.y === "number" && Number.isFinite(table.y) ? Math.max(0, Math.round(table.y)) : 220,
-    insertedAfterText: table.insertedAfterText !== false,
+    ...image,
+    previewUrl,
+    pendingBlob: null,
   };
 }
 
-function normalizeDetailsImages(value: unknown): DetailsImage[] {
-  if (!Array.isArray(value)) {
-    return [];
+export class IncompatibleProjectVersionError extends Error {
+  version: number | null;
+
+  constructor(version: number | null) {
+    super(
+      version === null
+        ? "El archivo del proyecto no tiene una version compatible."
+        : `El archivo del proyecto usa una version incompatible (${version}).`,
+    );
+    this.name = "IncompatibleProjectVersionError";
+    this.version = version;
   }
-
-  return value
-    .map((image): DetailsImage | null => {
-      if (!image || typeof image !== "object") {
-        return null;
-      }
-
-      const source = image as Partial<DetailsImage>;
-
-      if (!source.id || !source.path || !source.mimeType || !source.name) {
-        return null;
-      }
-
-      return {
-        id: source.id,
-        path: source.path,
-        mimeType: source.mimeType,
-        name: source.name,
-        x: typeof source.x === "number" && Number.isFinite(source.x) ? source.x : 0,
-        y: typeof source.y === "number" && Number.isFinite(source.y) ? source.y : 0,
-        width:
-          typeof source.width === "number" && Number.isFinite(source.width) && source.width > 0
-            ? source.width
-            : 320,
-        height:
-          typeof source.height === "number" && Number.isFinite(source.height) && source.height > 0
-            ? source.height
-            : 220,
-        rotation:
-          typeof source.rotation === "number" && Number.isFinite(source.rotation)
-            ? source.rotation
-            : 0,
-        previewUrl: source.previewUrl,
-        pendingBlob: null,
-      };
-    })
-    .filter((image): image is DetailsImage => Boolean(image));
 }
 
-function normalizeDetailsTextBoxes(value: unknown): DetailsTextBox[] {
-  if (!Array.isArray(value)) {
-    return [];
+export class MissingProjectFileError extends Error {
+  constructor() {
+    super(`No se encontro ${PROJECT_FILE_NAME}.`);
+    this.name = "MissingProjectFileError";
   }
-
-  return value
-    .map((textBox): DetailsTextBox | null => {
-      if (!textBox || typeof textBox !== "object") {
-        return null;
-      }
-
-      const source = textBox as Partial<DetailsTextBox>;
-
-      if (!source.id) {
-        return null;
-      }
-
-      return {
-        id: source.id,
-        text: typeof source.text === "string" ? source.text : "",
-        x: typeof source.x === "number" && Number.isFinite(source.x) ? source.x : 0,
-        y: typeof source.y === "number" && Number.isFinite(source.y) ? source.y : 0,
-        width:
-          typeof source.width === "number" && Number.isFinite(source.width) && source.width > 0
-            ? source.width
-            : 260,
-        height:
-          typeof source.height === "number" && Number.isFinite(source.height) && source.height > 0
-            ? source.height
-            : 120,
-        fontSize:
-          source.fontSize === "medium" ||
-          source.fontSize === "large" ||
-          source.fontSize === "xlarge" ||
-          source.fontSize === "huge"
-            ? source.fontSize
-            : "small",
-        color: typeof source.color === "string" && source.color ? source.color : "#111111",
-        bold: source.bold === true,
-        strike: source.strike === true,
-        bulleted: source.bulleted === true,
-        align: source.align === "center" || source.align === "right" ? source.align : "left",
-        linkUrl: typeof source.linkUrl === "string" && source.linkUrl ? source.linkUrl : null,
-      };
-    })
-    .filter((textBox): textBox is DetailsTextBox => Boolean(textBox));
 }
 
-function normalizeCards(value: unknown) {
-  const cards = value && typeof value === "object" ? (value as Record<string, QuestionCard>) : {};
-
-  return Object.fromEntries(
-    Object.entries(cards).map(([cardId, card]) => [
-      cardId,
-      {
-        ...card,
-        detailsText: typeof card.detailsText === "string" ? card.detailsText : "",
-        detailsTable: normalizeDetailsTable(card.detailsTable),
-        detailsImages: normalizeDetailsImages(card.detailsImages),
-        detailsTextBoxes: normalizeDetailsTextBoxes(card.detailsTextBoxes),
-      },
-    ]),
-  );
+export class EmptyProjectFileError extends Error {
+  constructor() {
+    super(`${PROJECT_FILE_NAME} esta vacio.`);
+    this.name = "EmptyProjectFileError";
+  }
 }
 
-function createEmptySection(id: string, name: string, timestamp: string): StudySection {
-  return {
-    id,
-    name,
-    cards: {},
-    selectedCardId: null,
-    draftText: "",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-}
+export class InvalidProjectFileError extends Error {
+  constructor(cause?: unknown) {
+    super(`No se pudo interpretar ${PROJECT_FILE_NAME}.`);
+    this.name = "InvalidProjectFileError";
 
-function normalizeSection(sectionId: string, value: unknown, timestamp: string): StudySection {
-  const source = value && typeof value === "object" ? (value as Partial<StudySection>) : {};
-  const cards = normalizeCards(source.cards);
-
-  return {
-    id: typeof source.id === "string" && source.id ? source.id : sectionId,
-    name: typeof source.name === "string" && source.name.trim() ? source.name.trim() : "Sin nombre",
-    cards,
-    selectedCardId: source.selectedCardId && cards[source.selectedCardId] ? source.selectedCardId : null,
-    draftText: typeof source.draftText === "string" ? source.draftText : "",
-    createdAt: typeof source.createdAt === "string" ? source.createdAt : timestamp,
-    updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : timestamp,
-  };
-}
-
-function normalizeSections(value: unknown, timestamp: string) {
-  const sourceSections =
-    value && typeof value === "object" ? { ...(value as Record<string, unknown>) } : {};
-
-  for (const [sectionId, sectionName] of FIXED_SECTIONS) {
-    if (!sourceSections[sectionId]) {
-      sourceSections[sectionId] = createEmptySection(sectionId, sectionName, timestamp);
+    if (cause !== undefined) {
+      this.cause = cause;
     }
   }
-
-  return Object.fromEntries(
-    Object.entries(sourceSections).map(([sectionId, section]) => [
-      sectionId,
-      normalizeSection(sectionId, section, timestamp),
-    ]),
-  );
 }
 
-function normalizeProjectSnapshot(snapshot: RawProjectSnapshot): ProjectSnapshot {
-  const timestamp = new Date().toISOString();
-  const legacyCards = normalizeCards(snapshot.cards);
-  const legacyCategoryId = crypto.randomUUID();
-  const sourceCategories =
-    snapshot.categories && Object.keys(snapshot.categories).length > 0
-      ? snapshot.categories
-      : {
-          [legacyCategoryId]: {
-            id: legacyCategoryId,
-            name: "Sin nombre",
-            cards: legacyCards,
-            selectedCardId: snapshot.selectedCardId ?? null,
-            draftText: snapshot.draftText ?? "",
-            createdAt: timestamp,
-            updatedAt: timestamp,
-          },
-        };
-  const categories = Object.fromEntries(
-    Object.entries(sourceCategories).map(([categoryId, category]) => {
-      const source = category as StudyCategory;
-      const cards = normalizeCards(source.cards);
-      const sections = normalizeSections(source.sections, timestamp);
-
-      return [
-        categoryId,
-        {
-          id: source.id || categoryId,
-          name: typeof source.name === "string" && source.name.trim() ? source.name.trim() : "Sin nombre",
-          cards,
-          selectedCardId: source.selectedCardId && cards[source.selectedCardId] ? source.selectedCardId : null,
-          draftText: typeof source.draftText === "string" ? source.draftText : "",
-          sections,
-          activeSectionId:
-            source.activeSectionId && sections[source.activeSectionId] ? source.activeSectionId : null,
-          createdAt: typeof source.createdAt === "string" ? source.createdAt : timestamp,
-          updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : timestamp,
-        } satisfies StudyCategory,
-      ];
-    }),
-  );
-
-  return {
-    version: 6,
-    categories,
-    activeCategoryId: null,
-    activeMapKind: null,
-    activeSectionId: null,
-    selectedCategoryId:
-      snapshot.selectedCategoryId && categories[snapshot.selectedCategoryId]
-        ? snapshot.selectedCategoryId
-        : Object.keys(categories)[0] ?? null,
-    categoryDraftText: typeof snapshot.categoryDraftText === "string" ? snapshot.categoryDraftText : "",
-    detailsTextBoxStyleDefaults: normalizeDetailsTextBoxStyleDefaults(snapshot.detailsTextBoxStyleDefaults),
-    savedAt: typeof snapshot.savedAt === "string" ? snapshot.savedAt : "",
-  };
-}
-
-export function buildImageAssetPath(cardId: string, mimeType: string) {
-  return `${ASSETS_DIRECTORY_NAME}/${cardId}.${getImageExtension(mimeType)}`;
-}
-
-export function buildDetailsImageAssetPath(cardId: string, imageId: string, mimeType: string) {
-  return `${ASSETS_DIRECTORY_NAME}/${cardId}-details-${imageId}.${getImageExtension(mimeType)}`;
+export function buildNodeImageAssetPath(nodeId: string, mimeType: string) {
+  return `${ASSETS_DIRECTORY_NAME}/${nodeId}.${getImageExtension(mimeType)}`;
 }
 
 export function supportsProjectDirectory() {
@@ -634,16 +359,10 @@ export async function readProjectSnapshot(handle: FileSystemDirectoryHandle) {
       throw new InvalidProjectFileError(error);
     }
 
-    if (
-      parsed.version !== 2 &&
-      parsed.version !== 3 &&
-      parsed.version !== 4 &&
-      parsed.version !== 5 &&
-      parsed.version !== 6
-    ) {
-      throw new IncompatibleProjectVersionError(
-        typeof parsed.version === "number" ? parsed.version : null,
-      );
+    const version = typeof parsed.version === "number" ? parsed.version : null;
+
+    if (version !== 7 && version !== 6 && version !== 5 && version !== 4 && version !== 3 && version !== 2) {
+      throw new IncompatibleProjectVersionError(version);
     }
 
     return normalizeProjectSnapshot(parsed);
@@ -663,63 +382,40 @@ export async function hydrateProjectSnapshotAssets(
   handle: FileSystemDirectoryHandle,
   snapshot: ProjectSnapshot,
 ) {
+  if (Object.keys(snapshot.categories).length === 0) {
+    return createEmptyProjectSnapshot();
+  }
+
   const nextSnapshot: ProjectSnapshot = {
     ...snapshot,
     categories: {},
   };
 
-  const hydrateCard = async (cardId: string, card: QuestionCard) => {
-      const mainImageFile = card.image?.path ? await readImageAsset(handle, card.image.path) : null;
-      const detailsImages = await Promise.all(
-        (card.detailsImages ?? []).map(async (image) => {
-          const imageFile = await readImageAsset(handle, image.path);
-
-          if (!imageFile) {
-            return image;
-          }
-
-          return {
-            ...image,
-            previewUrl: URL.createObjectURL(imageFile),
-          };
-        }),
-      );
-
-      return {
-          ...card,
-          detailsImages,
-          image:
-            card.image && mainImageFile
-              ? {
-                  ...card.image,
-                  previewUrl: URL.createObjectURL(mainImageFile),
-                }
-              : card.image,
-        };
-  };
-
   const categoryEntries = await Promise.all(
     Object.entries(snapshot.categories).map(async ([categoryId, category]) => {
-      const cardEntries = await Promise.all(
-        Object.entries(category.cards).map(async ([cardId, card]) => [
-          cardId,
-          await hydrateCard(cardId, card),
-        ] as const),
-      );
-      const sectionEntries = await Promise.all(
-        Object.entries(category.sections).map(async ([sectionId, section]) => {
-          const sectionCardEntries = await Promise.all(
-            Object.entries(section.cards).map(async ([cardId, card]) => [
-              cardId,
-              await hydrateCard(cardId, card),
-            ] as const),
+      const mapEntries = await Promise.all(
+        Object.entries(category.maps).map(async ([mapId, map]) => {
+          const nodeEntries = await Promise.all(
+            Object.entries(map.nodes).map(async ([nodeId, node]) => {
+              if (!node.image?.path) {
+                return [nodeId, node] as const;
+              }
+
+              const imageFile = await readImageAsset(handle, node.image.path);
+
+              if (!imageFile) {
+                return [nodeId, node] as const;
+              }
+
+              return [nodeId, { ...node, image: cloneImageWithPreview(node.image, URL.createObjectURL(imageFile)) }] as const;
+            }),
           );
 
           return [
-            sectionId,
+            mapId,
             {
-              ...section,
-              cards: Object.fromEntries(sectionCardEntries),
+              ...map,
+              nodes: Object.fromEntries(nodeEntries),
             },
           ] as const;
         }),
@@ -729,8 +425,7 @@ export async function hydrateProjectSnapshotAssets(
         categoryId,
         {
           ...category,
-          cards: Object.fromEntries(cardEntries),
-          sections: Object.fromEntries(sectionEntries),
+          maps: Object.fromEntries(mapEntries),
         },
       ] as const;
     }),
