@@ -335,12 +335,13 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const [canvasFailure, setCanvasFailure] = useState<CanvasFailure | null>(null);
   const [canvasRetryKey, setCanvasRetryKey] = useState(0);
   const [pureMapSession, setPureMapSession] = useState<PureMapSession | null>(null);
-  const [pureMapScene, setPureMapScene] = useState<ExcalidrawSceneState | null>(null);
+  const [pureMapLoadedScene, setPureMapLoadedScene] = useState<ExcalidrawSceneState | null>(null);
   const [pureMapSaveStatus, setPureMapSaveStatus] = useState<PureMapSaveStatus>("idle");
   const [pureMapError, setPureMapError] = useState<string | null>(null);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const pureMapSaveTimeoutRef = useRef<number | null>(null);
   const pureMapLastSavedSignatureRef = useRef("");
+  const pureMapLastQueuedSignatureRef = useRef("");
   const lastPersistedProjectSignatureRef = useRef("");
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const sceneSyncSignatureRef = useRef("");
@@ -821,10 +822,11 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
 
     setPureMapSession(null);
-    setPureMapScene(null);
+    setPureMapLoadedScene(null);
     setPureMapSaveStatus("idle");
     setPureMapError(null);
     pureMapLastSavedSignatureRef.current = "";
+    pureMapLastQueuedSignatureRef.current = "";
   };
 
   const openPureExcalidrawMap = async (args: {
@@ -846,7 +848,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     closeActiveMap();
     setPureMapError(null);
     setPureMapSaveStatus("loading");
-    setPureMapScene(null);
+    setPureMapLoadedScene(null);
     setPureMapSession({
       ...args,
       loadKey: Date.now(),
@@ -857,7 +859,8 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       const signature = JSON.stringify(scene);
       await writePureExcalidrawScene(directoryHandle, args.mapId, scene);
       pureMapLastSavedSignatureRef.current = signature;
-      setPureMapScene(scene);
+      pureMapLastQueuedSignatureRef.current = signature;
+      setPureMapLoadedScene(scene);
       setPureMapSaveStatus("saved");
     } catch (error) {
       setPureMapSaveStatus("error");
@@ -870,12 +873,15 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       const handle = directoryHandle;
       const signature = JSON.stringify(scene);
 
-      setPureMapScene(scene);
-
-      if (!handle || signature === pureMapLastSavedSignatureRef.current) {
+      if (
+        !handle ||
+        signature === pureMapLastSavedSignatureRef.current ||
+        signature === pureMapLastQueuedSignatureRef.current
+      ) {
         return;
       }
 
+      pureMapLastQueuedSignatureRef.current = signature;
       setPureMapSaveStatus("saving");
       setPureMapError(null);
 
@@ -1135,14 +1141,14 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
           </div>
 
           <div className="immersive-map-canvas">
-            {pureMapScene ? (
+            {pureMapLoadedScene ? (
               <ExcalidrawMapCanvas
                 key={`${pureMapSession.mapId}:${pureMapSession.loadKey}`}
                 initialData={
                   {
-                    elements: pureMapScene.elements,
-                    appState: pureMapScene.appState,
-                    files: pureMapScene.files,
+                    elements: pureMapLoadedScene.elements,
+                    appState: pureMapLoadedScene.appState,
+                    files: pureMapLoadedScene.files,
                     scrollToContent: true,
                   } as never
                 }
