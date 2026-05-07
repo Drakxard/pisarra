@@ -808,14 +808,12 @@ export function StudyTreeApp() {
               UIOptions={{
                 canvasActions: {
                   clearCanvas: true,
-                  export: {
-                    saveFileToDisk: true,
-                  },
+                  export: false,
                   loadScene: false,
                   saveToActiveFile: false,
                   toggleTheme: true,
                   changeViewBackgroundColor: true,
-                  saveAsImage: true,
+                  saveAsImage: false,
                 },
                 tools: {
                   image: true,
