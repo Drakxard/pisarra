@@ -77,6 +77,19 @@ type CollaborationDialogState = {
   error: string | null;
 };
 
+type ApiErrorResponse = {
+  error?: string;
+};
+
+async function readApiErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as ApiErrorResponse;
+    return typeof payload.error === "string" && payload.error.trim() ? payload.error : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function normalizeSearchText(value: string) {
   return value
     .normalize("NFD")
@@ -1066,7 +1079,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       });
 
       if (!response.ok) {
-        throw new Error("No se pudo crear la sesion.");
+        throw new Error(await readApiErrorMessage(response, "No se pudo crear la sesion."));
       }
 
       const payload = (await response.json()) as CreateCollaborationRoomResponse;
