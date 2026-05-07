@@ -29,3 +29,8 @@ Thumbs.db
 /proyecto guia
 study-tree.json
 excalidraw-0.18.1/
+excalidraw-*/
+public/excalidraw/*.js
+public/excalidraw/index.css
+public/excalidraw/data/
+public/excalidraw/locales/
