@@ -38,6 +38,15 @@ const CANVAS_MOUNT_TIMEOUT_MS = 6_000;
 type AppBootState = "loading" | "needs-directory" | "ready";
 type MapCanvasStatus = "idle" | "loading" | "ready" | "error";
 
+type CanvasFailure = {
+  mapId: string;
+  title: string;
+  message: string;
+  stack: string | null;
+  timestamp: string;
+  persistedElementCount: number;
+};
+
 type SearchHit = {
   nodeId: string;
   score: number;
@@ -313,6 +322,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [mapEntryError, setMapEntryError] = useState<string | null>(null);
   const [canvasStatus, setCanvasStatus] = useState<MapCanvasStatus>("idle");
+  const [canvasFailure, setCanvasFailure] = useState<CanvasFailure | null>(null);
   const [canvasRetryKey, setCanvasRetryKey] = useState(0);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const lastPersistedProjectSignatureRef = useRef("");
@@ -320,6 +330,10 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const sceneSyncSignatureRef = useRef("");
   const sceneAppliedRef = useRef(false);
   const ignoredEmptyMountChangeRef = useRef(false);
+  const isApplyingSceneRef = useRef(false);
+  const hasCanvasAcceptedInitialSceneRef = useRef(false);
+  const lastAcceptedSceneSignatureRef = useRef("");
+  const hasLoggedCanvasApiReadyRef = useRef(false);
   const activeCategoryRef = useRef<StudyCategory | null>(null);
   const activeMapRef = useRef<StudyMap | null>(null);
   const buildInfoRef = useRef(buildInfo);
@@ -558,6 +572,10 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       sceneSyncSignatureRef.current = "";
       sceneAppliedRef.current = false;
       ignoredEmptyMountChangeRef.current = false;
+      isApplyingSceneRef.current = false;
+      hasCanvasAcceptedInitialSceneRef.current = false;
+      lastAcceptedSceneSignatureRef.current = "";
+      hasLoggedCanvasApiReadyRef.current = false;
       return;
     }
 
@@ -571,6 +589,10 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     sceneSyncSignatureRef.current = "";
     sceneAppliedRef.current = false;
     ignoredEmptyMountChangeRef.current = false;
+    isApplyingSceneRef.current = false;
+    hasCanvasAcceptedInitialSceneRef.current = false;
+    lastAcceptedSceneSignatureRef.current = "";
+    hasLoggedCanvasApiReadyRef.current = false;
   }, [activeMap?.id]);
 
   useEffect(() => {
@@ -589,7 +611,16 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
         mapId: activeMap.id,
       });
       setCanvasStatus("error");
-      setMapEntryError(`No se pudo montar el mapa "${activeMap.title}": Excalidraw no respondio a tiempo.`);
+      const message = `No se pudo montar el mapa "${activeMap.title}": Excalidraw no respondio a tiempo.`;
+      setMapEntryError(message);
+      setCanvasFailure({
+        mapId: activeMap.id,
+        title: activeMap.title,
+        message,
+        stack: null,
+        timestamp: new Date().toISOString(),
+        persistedElementCount: runtimeSceneRef.current?.elements.filter((element) => !element.isDeleted).length ?? 0,
+      });
     }, CANVAS_MOUNT_TIMEOUT_MS);
 
     return () => {
@@ -657,9 +688,9 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     if (canvasSignature === JSON.stringify(runtimeScene)) {
       sceneSyncSignatureRef.current = activeMapSceneSignature;
       sceneAppliedRef.current = true;
-      if (canvasStatus !== "ready") {
-        setCanvasStatus("ready");
-      }
+      hasCanvasAcceptedInitialSceneRef.current = true;
+      lastAcceptedSceneSignatureRef.current = canvasSignature;
+      setCanvasStatus((current) => (current === "ready" ? current : "ready"));
       return;
     }
 
@@ -680,18 +711,19 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
         mapId: activeMap.id,
         elementCount: runtimeScene.elements.length,
       });
+      isApplyingSceneRef.current = true;
       api.updateScene({
         elements: runtimeScene.elements as never,
         appState: runtimeScene.appState as never,
       });
       sceneAppliedRef.current = true;
+      hasCanvasAcceptedInitialSceneRef.current = true;
+      lastAcceptedSceneSignatureRef.current = activeMapSceneSignature;
       console.info("[StudyTree] scene-applied", {
         mapId: activeMap.id,
         elementCount: runtimeScene.elements.length,
       });
-      if (canvasStatus !== "ready") {
-        setCanvasStatus("ready");
-      }
+      setCanvasStatus((current) => (current === "ready" ? current : "ready"));
       setMapEntryError(null);
     } catch (error) {
       const message =
@@ -701,9 +733,22 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
         error,
       });
       setCanvasStatus("error");
-      setMapEntryError(`No se pudo abrir el mapa "${activeMap.title}": ${message}`);
+      const nextMessage = `No se pudo abrir el mapa "${activeMap.title}": ${message}`;
+      setMapEntryError(nextMessage);
+      setCanvasFailure({
+        mapId: activeMap.id,
+        title: activeMap.title,
+        message: nextMessage,
+        stack: error instanceof Error ? error.stack ?? null : null,
+        timestamp: new Date().toISOString(),
+        persistedElementCount: runtimeScene.elements.filter((element) => !element.isDeleted).length,
+      });
+    } finally {
+      queueMicrotask(() => {
+        isApplyingSceneRef.current = false;
+      });
     }
-  }, [activeMap, activeMapSceneSignature, canvasStatus, runtimeScene]);
+  }, [activeMap?.id, activeMapSceneSignature, runtimeScene]);
 
   useEffect(() => {
     const api = excalidrawApiRef.current;
@@ -776,31 +821,79 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
 
   const retryCanvasMount = () => {
     setMapEntryError(null);
+    setCanvasFailure(null);
     setCanvasStatus("loading");
     excalidrawApiRef.current = null;
     sceneSyncSignatureRef.current = "";
     sceneAppliedRef.current = false;
     ignoredEmptyMountChangeRef.current = false;
+    isApplyingSceneRef.current = false;
+    hasCanvasAcceptedInitialSceneRef.current = false;
+    lastAcceptedSceneSignatureRef.current = "";
+    hasLoggedCanvasApiReadyRef.current = false;
     setCanvasRetryKey((current) => current + 1);
+  };
+
+  const clearCanvasFailure = () => {
+    setMapEntryError(null);
+    setCanvasFailure(null);
+    setCanvasStatus((current) => (current === "error" ? "ready" : current));
+  };
+
+  const leaveMapShell = () => {
+    setMapEntryError(null);
+    setCanvasFailure(null);
+    closeActiveMap();
   };
 
   const handleCanvasApi = useCallback((api: ExcalidrawImperativeAPI) => {
     excalidrawApiRef.current = api;
 
     queueMicrotask(() => {
-      console.info("[StudyTree] canvas-api-ready", {
-        build: buildInfoRef.current,
-        categoryId: activeCategoryRef.current?.id ?? null,
-        mapId: activeMapRef.current?.id ?? null,
-      });
+      if (!hasLoggedCanvasApiReadyRef.current) {
+        hasLoggedCanvasApiReadyRef.current = true;
+        console.info("[StudyTree] canvas-api-ready", {
+          build: buildInfoRef.current,
+          categoryId: activeCategoryRef.current?.id ?? null,
+          mapId: activeMapRef.current?.id ?? null,
+        });
+      }
       setCanvasStatus((current) => (current === "error" ? current : "ready"));
     });
   }, []);
 
   const handleSceneChange = useCallback((scene: ExcalidrawSceneState) => {
+    if (isApplyingSceneRef.current) {
+      return;
+    }
+
     const persistedElementCount =
       runtimeSceneRef.current?.elements.filter((element) => !element.isDeleted).length ?? 0;
     const nextElementCount = scene.elements.filter((element) => !element.isDeleted).length;
+    const nextSceneSignature = JSON.stringify(scene);
+
+    if (!hasCanvasAcceptedInitialSceneRef.current) {
+      if (persistedElementCount === 0) {
+        hasCanvasAcceptedInitialSceneRef.current = true;
+      } else if (nextElementCount === 0) {
+        if (!ignoredEmptyMountChangeRef.current) {
+          ignoredEmptyMountChangeRef.current = true;
+          console.warn("[StudyTree] ignored-empty-mount-change", {
+            build: buildInfoRef.current,
+            categoryId: activeCategoryRef.current?.id ?? null,
+            mapId: activeMapRef.current?.id ?? null,
+            persistedElementCount,
+          });
+        }
+        return;
+      } else {
+        hasCanvasAcceptedInitialSceneRef.current = true;
+      }
+    }
+
+    if (lastAcceptedSceneSignatureRef.current === nextSceneSignature) {
+      return;
+    }
 
     if (!sceneAppliedRef.current && persistedElementCount > 0 && nextElementCount === 0) {
       if (!ignoredEmptyMountChangeRef.current) {
@@ -815,6 +908,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       return;
     }
 
+    lastAcceptedSceneSignatureRef.current = nextSceneSignature;
     setMapScene(scene);
   }, [setMapScene]);
 
@@ -937,7 +1031,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       ) : (
         <section className="immersive-map-shell">
           <div className="map-hud map-hud--breadcrumbs">
-            <button type="button" className="map-floating-button" onClick={closeActiveMap}>
+            <button type="button" className="map-floating-button" onClick={leaveMapShell}>
               Materias
             </button>
             {activeMap.parentMapId ? (
@@ -999,20 +1093,29 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                 handleCanvasApi(api);
               }}
               onRenderError={(error) => {
-                console.error("[StudyTree] canvas-error", {
-                  build: buildInfo,
-                  categoryId: activeCategory.id,
-                  mapId: activeMap.id,
-                  error,
+                queueMicrotask(() => {
+                  console.error("[StudyTree] canvas-error", {
+                    build: buildInfoRef.current,
+                    categoryId: activeCategoryRef.current?.id ?? null,
+                    mapId: activeMapRef.current?.id ?? null,
+                    error,
+                  });
+                  const failedMap = activeMapRef.current;
+                  const message = `No se pudo abrir el mapa "${failedMap?.title ?? "Mapa"}": ${error.message}`;
+                  setCanvasStatus("error");
+                  setMapEntryError(message);
+                  setCanvasFailure({
+                    mapId: failedMap?.id ?? "unknown",
+                    title: failedMap?.title ?? "Mapa",
+                    message,
+                    stack: error.stack ?? null,
+                    timestamp: new Date().toISOString(),
+                    persistedElementCount:
+                      runtimeSceneRef.current?.elements.filter((element) => !element.isDeleted).length ?? 0,
+                  });
                 });
-                setCanvasStatus("error");
-                setMapEntryError(`No se pudo abrir el mapa "${activeMap.title}": ${error.message}`);
               }}
-              fallback={
-                <div className="map-sync-status is-error" aria-live="polite">
-                  {mapEntryError ?? "No se pudo abrir el mapa en Excalidraw."}
-                </div>
-              }
+              fallback={null}
               viewModeEnabled={false}
               renderTopRightUI={() => (
                 <div className="map-top-right-ui">
@@ -1056,7 +1159,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                 },
               }}
               onChange={(elements, appState, files) => {
-                handleSceneChange({
+                const nextScene = {
                   elements: [...elements],
                   appState: {
                     scrollX: appState.scrollX,
@@ -1067,8 +1170,13 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                     gridSize: appState.gridSize,
                   },
                   files: { ...files },
+                };
+                const selectedElementIds = { ...appState.selectedElementIds };
+
+                queueMicrotask(() => {
+                  handleSceneChange(nextScene);
+                  selectNode(getNodeFromSelection(activeMapRef.current, selectedElementIds) ?? null);
                 });
-                selectNode(getNodeFromSelection(activeMap, appState.selectedElementIds) ?? null);
               }}
             />
 
@@ -1085,15 +1193,37 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
               </div>
             ) : null}
 
-            {canvasStatus === "error" && mapEntryError ? (
+            {canvasFailure ? (
               <div className="map-canvas-state map-canvas-state--error" aria-live="polite">
                 <strong>No se pudo abrir el mapa</strong>
-                <span>{mapEntryError}</span>
+                <span>{canvasFailure.message}</span>
+                <dl className="map-canvas-diagnostics">
+                  <div>
+                    <dt>Mapa</dt>
+                    <dd>{canvasFailure.title}</dd>
+                  </div>
+                  <div>
+                    <dt>mapId</dt>
+                    <dd>{canvasFailure.mapId}</dd>
+                  </div>
+                  <div>
+                    <dt>Elementos persistidos</dt>
+                    <dd>{canvasFailure.persistedElementCount}</dd>
+                  </div>
+                  <div>
+                    <dt>Timestamp</dt>
+                    <dd>{canvasFailure.timestamp}</dd>
+                  </div>
+                </dl>
+                {canvasFailure.stack ? <pre className="map-canvas-stack">{canvasFailure.stack}</pre> : null}
                 <div className="map-canvas-state-actions">
                   <button type="button" className="map-floating-button is-accent" onClick={retryCanvasMount}>
                     Reintentar
                   </button>
-                  <button type="button" className="map-floating-button" onClick={closeActiveMap}>
+                  <button type="button" className="map-floating-button" onClick={clearCanvasFailure}>
+                    Cerrar error
+                  </button>
+                  <button type="button" className="map-floating-button" onClick={leaveMapShell}>
                     Materias
                   </button>
                 </div>
@@ -1118,7 +1248,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                 {persistenceError}
               </div>
             ) : null}
-            {mapEntryError ? (
+            {mapEntryError && !canvasFailure ? (
               <div className="map-sync-status is-error" aria-live="polite">
                 {mapEntryError}
               </div>
