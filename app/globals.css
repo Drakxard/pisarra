@@ -216,11 +216,6 @@ img {
   grid-row: 2;
 }
 
-.category-section-card.is-theorems {
-  grid-column: 1;
-  grid-row: 3;
-}
-
 .category-section-card.is-exams {
   grid-column: 3;
   grid-row: 2;
@@ -255,45 +250,6 @@ img {
   position: relative;
   min-height: 100vh;
   padding: 1rem;
-}
-
-.map-topbar {
-  position: relative;
-  z-index: 3;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid var(--frame);
-  border-radius: 1.25rem;
-  background: rgba(255, 252, 246, 0.76);
-  backdrop-filter: blur(16px);
-}
-
-.map-breadcrumbs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.55rem;
-}
-
-.map-breadcrumb {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  color: var(--foreground-muted);
-}
-
-.map-breadcrumb-sep {
-  color: rgba(111, 83, 52, 0.44);
-}
-
-.map-topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
 }
 
 .map-search {
@@ -565,13 +521,6 @@ img {
   pointer-events: auto;
 }
 
-.map-hud--breadcrumbs {
-  top: 1rem;
-  left: 1rem;
-  right: min(26rem, calc(100vw - 2rem));
-  flex-wrap: wrap;
-}
-
 .map-hud--search {
   top: 1rem;
   left: 50%;
@@ -581,37 +530,6 @@ img {
 .map-hud--selection {
   left: 1rem;
   bottom: 1rem;
-}
-
-.map-breadcrumbs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid rgba(146, 123, 95, 0.24);
-  border-radius: 999px;
-  background: rgba(255, 252, 246, 0.82);
-  backdrop-filter: blur(14px);
-}
-
-.map-breadcrumb {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--foreground-muted);
-}
-
-.map-breadcrumb-sep {
-  color: rgba(111, 83, 52, 0.44);
-}
-
-.map-breadcrumb-button {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
 }
 
 .map-search--floating {
@@ -722,7 +640,6 @@ img {
   .category-main-orb,
   .category-section-card,
   .category-section-card.is-definitions,
-  .category-section-card.is-theorems,
   .category-section-card.is-exams,
   .category-section-card.is-exercises {
     grid-column: 1;
@@ -739,22 +656,8 @@ img {
     width: min(18rem, 82vw);
   }
 
-  .map-topbar {
-    flex-direction: column;
-  }
-
-  .map-topbar-actions {
-    width: 100%;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
   .map-search {
     width: 100%;
-  }
-
-  .map-hud--breadcrumbs {
-    right: 1rem;
   }
 
   .map-hud--search {

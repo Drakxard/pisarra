@@ -131,6 +131,14 @@ function getNodeFromSelection(map: StudyMap | null, selectedElementIds: Record<s
   return null;
 }
 
+function hasSelectedExcalidrawElements(api: ExcalidrawImperativeAPI | null) {
+  if (!api) {
+    return false;
+  }
+
+  return Object.values(api.getAppState().selectedElementIds ?? {}).some(Boolean);
+}
+
 function getNodeFromElementId(map: StudyMap | null, elementId: string | null | undefined) {
   if (!map || !elementId) {
     return null;
@@ -371,7 +379,7 @@ function HomeScreen({
       <div className="question-stage-backdrop" />
       <div className="category-home-shell">
         <div className="category-map-home">
-          {FIXED_SECTION_IDS.map((sectionId) => (
+          {FIXED_SECTION_IDS.filter((sectionId) => sectionId !== "theorems").map((sectionId) => (
             <button
               key={sectionId}
               type="button"
@@ -438,9 +446,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     createCategory,
     renameCategory,
     selectCategory,
-    openMap,
     openNodeChildMap,
-    goToParentMap,
     closeActiveMap,
     selectNode,
     createMapNode,
@@ -1098,6 +1104,59 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     closeActiveMap();
   };
 
+  const handleRenameCategory = useCallback(
+    (categoryId: string, name: string) => {
+      renameCategory(categoryId, name);
+      queueMicrotask(() => {
+        void flushProjectNow();
+      });
+    },
+    [flushProjectNow, renameCategory],
+  );
+
+  useEffect(() => {
+    const handleMapEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      const target = event.target;
+      const isTextInput =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+
+      if (isTextInput) {
+        return;
+      }
+
+      if (pureMapSession) {
+        if (hasSelectedExcalidrawElements(pureMapApiRef.current)) {
+          return;
+        }
+
+        event.preventDefault();
+        closePureMap();
+        return;
+      }
+
+      if (activeCategory && activeMap) {
+        if (hasSelectedExcalidrawElements(excalidrawApiRef.current)) {
+          return;
+        }
+
+        event.preventDefault();
+        leaveMapShell();
+      }
+    };
+
+    window.addEventListener("keydown", handleMapEscape);
+
+    return () => {
+      window.removeEventListener("keydown", handleMapEscape);
+    };
+  }, [activeCategory, activeMap, pureMapSession]);
+
   const handleCanvasApi = useCallback((api: ExcalidrawImperativeAPI) => {
     excalidrawApiRef.current = api;
 
@@ -1176,31 +1235,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const breadcrumbs = useMemo(() => {
-    if (!activeCategory || !activeMap) {
-      return [];
-    }
-
-    const items = [{ id: activeCategory.id, label: activeCategory.name, mapId: null as string | null }];
-    const lineage: StudyMap[] = [];
-    let current: StudyMap | null = activeMap;
-
-    while (current) {
-      lineage.unshift(current);
-      current = current.parentMapId ? activeCategory.maps[current.parentMapId] ?? null : null;
-    }
-
-    for (const map of lineage) {
-      if (map.kind === "main" && map.title === activeCategory.name) {
-        items.push({ id: map.id, label: "Mapa principal", mapId: map.id });
-      } else {
-        items.push({ id: map.id, label: map.title, mapId: map.id });
-      }
-    }
-
-    return items;
-  }, [activeCategory, activeMap]);
-
   useEffect(() => {
     console.info("[StudyTree] view-state", {
       build: buildInfo,
@@ -1254,15 +1288,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     <main className="minimal-shell">
       {pureMapSession ? (
         <section className="immersive-map-shell">
-          <div className="map-hud map-hud--breadcrumbs">
-            <button type="button" className="map-floating-button" onClick={closePureMap}>
-              Materias
-            </button>
-            <div className="map-breadcrumbs">
-              <span className="map-breadcrumb">{pureMapSession.breadcrumbLabel}</span>
-            </div>
-          </div>
-
           <div className="pure-map-save-status" aria-live="polite">
             {pureMapSaveStatus === "loading"
               ? "Cargando archivo"
@@ -1340,9 +1365,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                   >
                     Reintentar
                   </button>
-                  <button type="button" className="map-floating-button" onClick={closePureMap}>
-                    Materias
-                  </button>
                 </div>
               </div>
             ) : null}
@@ -1395,43 +1417,10 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
               selectCategory(categoryId);
             }
           }}
-          onRenameCategory={renameCategory}
+          onRenameCategory={handleRenameCategory}
         />
       ) : (
         <section className="immersive-map-shell">
-          <div className="map-hud map-hud--breadcrumbs">
-            <button type="button" className="map-floating-button" onClick={leaveMapShell}>
-              Materias
-            </button>
-            {activeMap.parentMapId ? (
-              <button type="button" className="map-floating-button" onClick={goToParentMap}>
-                Subir
-              </button>
-            ) : null}
-            <div className="map-breadcrumbs">
-              {breadcrumbs.map((item, index) => {
-                const isLast = index === breadcrumbs.length - 1;
-
-                return (
-                  <span key={item.id} className="map-breadcrumb">
-                    {index > 0 ? <span className="map-breadcrumb-sep">/</span> : null}
-                    {item.mapId && !isLast ? (
-                      <button
-                        type="button"
-                        className="map-breadcrumb-button"
-                        onClick={() => openMap(activeCategory.id, item.mapId!)}
-                      >
-                        {item.label}
-                      </button>
-                    ) : (
-                      <span>{item.label}</span>
-                    )}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-
           <div className="map-hud map-hud--search">
             <label className="map-search map-search--floating" htmlFor="map-search">
               <span>Buscar</span>
@@ -1591,9 +1580,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                   </button>
                   <button type="button" className="map-floating-button" onClick={clearCanvasFailure}>
                     Cerrar error
-                  </button>
-                  <button type="button" className="map-floating-button" onClick={leaveMapShell}>
-                    Materias
                   </button>
                 </div>
               </div>
