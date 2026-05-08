@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { ExcalidrawMapCanvas } from "@/components/excalidraw-map-canvas";
-import type { CreateCollaborationRoomResponse } from "@/lib/collaboration-types";
 import {
   EmptyProjectFileError,
   hydrateProjectSnapshotAssets,
@@ -70,25 +69,6 @@ type PureMapSession = {
 };
 
 type PureMapSaveStatus = "idle" | "loading" | "saving" | "saved" | "error";
-type CollaborationDialogState = {
-  open: boolean;
-  status: "idle" | "creating" | "ready" | "error";
-  url: string | null;
-  error: string | null;
-};
-
-type ApiErrorResponse = {
-  error?: string;
-};
-
-async function readApiErrorMessage(response: Response, fallback: string) {
-  try {
-    const payload = (await response.json()) as ApiErrorResponse;
-    return typeof payload.error === "string" && payload.error.trim() ? payload.error : fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 function normalizeSearchText(value: string) {
   return value
@@ -180,56 +160,6 @@ function serializeCanvasScene(api: ExcalidrawImperativeAPI): ExcalidrawSceneStat
     },
     files: { ...api.getFiles() },
   };
-}
-
-function CollaborationDialog({
-  state,
-  onClose,
-  onStart,
-}: {
-  state: CollaborationDialogState;
-  onClose: () => void;
-  onStart: () => void;
-}) {
-  if (!state.open) {
-    return null;
-  }
-
-  return (
-    <div className="collaboration-dialog-backdrop" role="presentation">
-      <section className="collaboration-dialog" role="dialog" aria-modal="true" aria-labelledby="collaboration-title">
-        <button type="button" className="collaboration-dialog-close" onClick={onClose} aria-label="Cerrar">
-          x
-        </button>
-        <h2 id="collaboration-title">Colaboracion en vivo</h2>
-        <p>Invita a alguien a editar este mapa contigo. Cualquiera con el link puede entrar.</p>
-        {state.url ? (
-          <div className="collaboration-link-box">
-            <input id="collaboration-share-url" name="collaboration_share_url" value={state.url} readOnly />
-            <button
-              type="button"
-              className="map-floating-button is-collaboration"
-              onClick={() => {
-                void navigator.clipboard.writeText(state.url ?? "");
-              }}
-            >
-              Copiar link
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="map-floating-button is-collaboration collaboration-start-button"
-            onClick={onStart}
-            disabled={state.status === "creating"}
-          >
-            {state.status === "creating" ? "Creando..." : "Iniciar sesion"}
-          </button>
-        )}
-        {state.error ? <p className="collaboration-dialog-error">{state.error}</p> : null}
-      </section>
-    </div>
-  );
 }
 
 function HomeScreen({
@@ -426,12 +356,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const activeMapRef = useRef<StudyMap | null>(null);
   const buildInfoRef = useRef(buildInfo);
   const runtimeSceneRef = useRef<ExcalidrawSceneState | null>(null);
-  const [collaborationDialog, setCollaborationDialog] = useState<CollaborationDialogState>({
-    open: false,
-    status: "idle",
-    url: null,
-    error: null,
-  });
 
   const categoriesList = useMemo(() => Object.values(categories), [categories]);
   const selectedCategory =
@@ -1015,91 +939,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   };
 
-  const openCollaborationDialog = () => {
-    setCollaborationDialog({
-      open: true,
-      status: "idle",
-      url: null,
-      error: null,
-    });
-  };
-
-  const closeCollaborationDialog = () => {
-    setCollaborationDialog((current) => ({
-      ...current,
-      open: false,
-    }));
-  };
-
-  const startCollaborationRoom = async () => {
-    const activeScene = pureMapSession
-      ? pureMapApiRef.current
-        ? serializeCanvasScene(pureMapApiRef.current)
-        : pureMapLoadedScene
-      : excalidrawApiRef.current
-        ? serializeCanvasScene(excalidrawApiRef.current)
-        : runtimeSceneRef.current;
-    const source = pureMapSession
-      ? {
-          categoryId: pureMapSession.categoryId,
-          mapId: pureMapSession.mapId,
-        }
-      : {
-          categoryId: activeCategoryRef.current?.id ?? null,
-          mapId: activeMapRef.current?.id ?? null,
-        };
-
-    if (!activeScene) {
-      setCollaborationDialog({
-        open: true,
-        status: "error",
-        url: null,
-        error: "No se pudo leer el mapa actual.",
-      });
-      return;
-    }
-
-    setCollaborationDialog({
-      open: true,
-      status: "creating",
-      url: null,
-      error: null,
-    });
-
-    try {
-      const response = await fetch("/api/collaboration/rooms", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          scene: activeScene,
-          source,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiErrorMessage(response, "No se pudo crear la sesion."));
-      }
-
-      const payload = (await response.json()) as CreateCollaborationRoomResponse;
-
-      setCollaborationDialog({
-        open: true,
-        status: "ready",
-        url: payload.url,
-        error: null,
-      });
-    } catch (error) {
-      setCollaborationDialog({
-        open: true,
-        status: "error",
-        url: null,
-        error: error instanceof Error ? error.message : "No se pudo crear la sesion.",
-      });
-    }
-  };
-
   const retryCanvasMount = () => {
     setMapEntryError(null);
     setCanvasFailure(null);
@@ -1281,13 +1120,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
 
   return (
     <main className="minimal-shell">
-      <CollaborationDialog
-        state={collaborationDialog}
-        onClose={closeCollaborationDialog}
-        onStart={() => {
-          void startCollaborationRoom();
-        }}
-      />
       {pureMapSession ? (
         <section className="immersive-map-shell">
           <div className="map-hud map-hud--breadcrumbs">
@@ -1327,17 +1159,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                 excalidrawAPI={(api) => {
                   pureMapApiRef.current = api;
                 }}
-                renderTopRightUI={() => (
-                  <div className="map-top-right-ui">
-                    <button
-                      type="button"
-                      className="map-floating-button is-collaboration"
-                      onClick={openCollaborationDialog}
-                    >
-                      Compartir
-                    </button>
-                  </div>
-                )}
                 UIOptions={{
                   canvasActions: {
                     clearCanvas: true,
@@ -1541,13 +1362,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                     onClick={createNodeAtViewportCenter}
                   >
                     Nueva tarjeta
-                  </button>
-                  <button
-                    type="button"
-                    className="map-floating-button is-collaboration"
-                    onClick={openCollaborationDialog}
-                  >
-                    Compartir
                   </button>
                   {selectedNode ? (
                     <button

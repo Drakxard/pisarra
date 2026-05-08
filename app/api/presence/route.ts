@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { listPresence, upsertPresence } from "@/lib/server/db";
-import type { PresenceState } from "@/lib/collaboration-types";
+import type { PresenceState } from "@/lib/realtime-types";
 
 export const runtime = "nodejs";
 

@@ -1,22 +1,18 @@
 import { Pool } from "pg";
-import { randomUUID } from "node:crypto";
 import type {
-  CollaborationPresence,
-  CollaborationRoom,
-  CollaborationRoomResponse,
   PresenceState,
   ProjectEvent,
   RemoteProject,
   SyncResponse,
-} from "@/lib/collaboration-types";
+} from "@/lib/realtime-types";
 import { normalizeProjectSnapshot } from "@/lib/server/project-normalize";
-import type { ExcalidrawSceneState, ProjectSnapshot } from "@/lib/types";
+import type { ProjectSnapshot } from "@/lib/types";
 
 const DEFAULT_PROJECT_ID = "default";
 const PRESENCE_TTL_SECONDS = 15;
-const COLLABORATION_PRESENCE_TTL_SECONDS = 15;
 
 let pool: Pool | null = null;
+let schemaReady: Promise<void> | null = null;
 
 function getPool() {
   if (!process.env.DATABASE_URL) {
@@ -36,7 +32,21 @@ function getPool() {
 }
 
 export async function ensureSchema() {
-  await getPool().query(`
+  schemaReady ??= initializeSchema().catch((error) => {
+    schemaReady = null;
+    throw error;
+  });
+
+  await schemaReady;
+}
+
+async function initializeSchema() {
+  const client = await getPool().connect();
+
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock($1, $2)", [754531, 20260508]);
+    await client.query(`
     create table if not exists projects (
       id text primary key,
       snapshot jsonb not null,
@@ -72,28 +82,14 @@ export async function ensureSchema() {
     alter table presence add column if not exists active_map_id text;
     alter table presence add column if not exists selected_node_id text;
 
-    create table if not exists collaboration_rooms (
-      id text primary key,
-      scene jsonb not null,
-      scene_version integer not null default 1,
-      source_category_id text,
-      source_map_id text,
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now()
-    );
-
-    create table if not exists collaboration_presence (
-      room_id text not null references collaboration_rooms(id) on delete cascade,
-      client_id text not null,
-      name text not null,
-      color text not null,
-      pointer jsonb,
-      button text not null default 'up',
-      selected_element_ids jsonb not null default '{}'::jsonb,
-      updated_at timestamptz not null default now(),
-      primary key (room_id, client_id)
-    );
   `);
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 function createEmptySnapshot(): ProjectSnapshot {
@@ -380,171 +376,4 @@ export async function listPresence(projectId = DEFAULT_PROJECT_ID): Promise<Pres
     selectedNodeId: row.selected_node_id,
     updatedAt: row.updated_at.toISOString(),
   }));
-}
-
-function mapCollaborationRoom(row: {
-  id: string;
-  scene: ExcalidrawSceneState;
-  scene_version: number;
-  source_category_id: string | null;
-  source_map_id: string | null;
-  created_at: Date;
-  updated_at: Date;
-}): CollaborationRoom {
-  return {
-    roomId: row.id,
-    scene: row.scene,
-    sceneVersion: row.scene_version,
-    source: {
-      categoryId: row.source_category_id,
-      mapId: row.source_map_id,
-    },
-    createdAt: row.created_at.toISOString(),
-    updatedAt: row.updated_at.toISOString(),
-  };
-}
-
-function mapCollaborationPresence(row: {
-  client_id: string;
-  name: string;
-  color: string;
-  pointer: CollaborationPresence["pointer"];
-  button: string;
-  selected_element_ids: Record<string, boolean> | null;
-  updated_at: Date;
-}): CollaborationPresence {
-  return {
-    clientId: row.client_id,
-    name: row.name,
-    color: row.color,
-    pointer: row.pointer,
-    button: row.button === "down" ? "down" : "up",
-    selectedElementIds: row.selected_element_ids ?? {},
-    updatedAt: row.updated_at.toISOString(),
-  };
-}
-
-export async function createCollaborationRoom({
-  scene,
-  source,
-}: {
-  scene: ExcalidrawSceneState;
-  source?: {
-    categoryId?: string | null;
-    mapId?: string | null;
-  };
-}) {
-  await ensureSchema();
-
-  const roomId = randomUUID();
-  const result = await getPool().query(
-    `
-      insert into collaboration_rooms (id, scene, source_category_id, source_map_id)
-      values ($1, $2, $3, $4)
-      returning id, scene, scene_version, source_category_id, source_map_id, created_at, updated_at
-    `,
-    [roomId, JSON.stringify(scene), source?.categoryId ?? null, source?.mapId ?? null],
-  );
-
-  return mapCollaborationRoom(result.rows[0]);
-}
-
-export async function getCollaborationRoom(roomId: string): Promise<CollaborationRoomResponse | null> {
-  await ensureSchema();
-
-  const roomResult = await getPool().query(
-    `
-      select id, scene, scene_version, source_category_id, source_map_id, created_at, updated_at
-      from collaboration_rooms
-      where id = $1
-    `,
-    [roomId],
-  );
-
-  if (roomResult.rowCount === 0) {
-    return null;
-  }
-
-  const presenceResult = await getPool().query(
-    `
-      select client_id, name, color, pointer, button, selected_element_ids, updated_at
-      from collaboration_presence
-      where room_id = $1 and updated_at > now() - ($2 || ' seconds')::interval
-      order by updated_at desc
-    `,
-    [roomId, COLLABORATION_PRESENCE_TTL_SECONDS],
-  );
-
-  return {
-    room: mapCollaborationRoom(roomResult.rows[0]),
-    presence: presenceResult.rows.map(mapCollaborationPresence),
-  };
-}
-
-export async function saveCollaborationRoomScene({
-  roomId,
-  scene,
-}: {
-  roomId: string;
-  scene: ExcalidrawSceneState;
-}) {
-  await ensureSchema();
-
-  const result = await getPool().query(
-    `
-      update collaboration_rooms
-      set scene = $1, scene_version = scene_version + 1, updated_at = now()
-      where id = $2
-      returning id, scene, scene_version, source_category_id, source_map_id, created_at, updated_at
-    `,
-    [JSON.stringify(scene), roomId],
-  );
-
-  if (result.rowCount === 0) {
-    return null;
-  }
-
-  return mapCollaborationRoom(result.rows[0]);
-}
-
-export async function upsertCollaborationPresence({
-  roomId,
-  presence,
-}: {
-  roomId: string;
-  presence: Omit<CollaborationPresence, "updatedAt">;
-}) {
-  await ensureSchema();
-
-  await getPool().query(
-    `
-      insert into collaboration_presence (
-        room_id,
-        client_id,
-        name,
-        color,
-        pointer,
-        button,
-        selected_element_ids,
-        updated_at
-      )
-      values ($1, $2, $3, $4, $5, $6, $7, now())
-      on conflict (room_id, client_id) do update set
-        name = excluded.name,
-        color = excluded.color,
-        pointer = excluded.pointer,
-        button = excluded.button,
-        selected_element_ids = excluded.selected_element_ids,
-        updated_at = now()
-    `,
-    [
-      roomId,
-      presence.clientId,
-      presence.name,
-      presence.color,
-      presence.pointer ? JSON.stringify(presence.pointer) : null,
-      presence.button,
-      JSON.stringify(presence.selectedElementIds),
-    ],
-  );
 }
