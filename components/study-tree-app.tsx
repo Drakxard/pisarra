@@ -139,6 +139,14 @@ function hasSelectedExcalidrawElements(api: ExcalidrawImperativeAPI | null) {
   return Object.values(api.getAppState().selectedElementIds ?? {}).some(Boolean);
 }
 
+function isExcalidrawSelectionToolActive(api: ExcalidrawImperativeAPI | null) {
+  if (!api) {
+    return false;
+  }
+
+  return api.getAppState().activeTool.type === "selection";
+}
+
 function getNodeFromElementId(map: StudyMap | null, elementId: string | null | undefined) {
   if (!map || !elementId) {
     return null;
@@ -1131,29 +1139,35 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       }
 
       if (pureMapSession) {
-        if (hasSelectedExcalidrawElements(pureMapApiRef.current)) {
+        const api = pureMapApiRef.current;
+
+        if (!isExcalidrawSelectionToolActive(api) || hasSelectedExcalidrawElements(api)) {
           return;
         }
 
         event.preventDefault();
+        event.stopPropagation();
         closePureMap();
         return;
       }
 
       if (activeCategory && activeMap) {
-        if (hasSelectedExcalidrawElements(excalidrawApiRef.current)) {
+        const api = excalidrawApiRef.current;
+
+        if (!isExcalidrawSelectionToolActive(api) || hasSelectedExcalidrawElements(api)) {
           return;
         }
 
         event.preventDefault();
+        event.stopPropagation();
         leaveMapShell();
       }
     };
 
-    window.addEventListener("keydown", handleMapEscape);
+    window.addEventListener("keydown", handleMapEscape, { capture: true });
 
     return () => {
-      window.removeEventListener("keydown", handleMapEscape);
+      window.removeEventListener("keydown", handleMapEscape, { capture: true });
     };
   }, [activeCategory, activeMap, pureMapSession]);
 
