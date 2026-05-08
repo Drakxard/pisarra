@@ -63,7 +63,7 @@ export function ExcalidrawMapCanvas({ errorKey, onRenderError, fallback, ...prop
   return (
     <div className="excalidraw-host">
       <CanvasErrorBoundary errorKey={errorKey} onRenderError={onRenderError} fallback={fallback}>
-        <Excalidraw {...props} />
+        <Excalidraw langCode="es-ES" {...props} />
       </CanvasErrorBoundary>
     </div>
   );
