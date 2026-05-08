@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { ExcalidrawMapCanvas } from "@/components/excalidraw-map-canvas";
 import {
@@ -179,16 +180,190 @@ function HomeScreen({
   onCreateCategory: (name: string) => void;
   onRenameCategory: (categoryId: string, name: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
   const [isRenaming, setIsRenaming] = useState(false);
+  const createDraftRef = useRef("");
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
   const selectedCategory =
     categories.find((category) => category.id === selectedCategoryId) ?? categories[0] ?? null;
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const moveSelection = useCallback(
+    (direction: -1 | 1) => {
+      if (categories.length === 0) {
+        return;
+      }
+
+      const currentIndex = Math.max(
+        0,
+        categories.findIndex((category) => category.id === selectedCategory?.id),
+      );
+      const nextIndex = (currentIndex + direction + categories.length) % categories.length;
+      onSelectCategory(categories[nextIndex].id);
+    },
+    [categories, onSelectCategory, selectedCategory?.id],
+  );
+
+  const startRenaming = useCallback(() => {
+    if (!selectedCategory) {
+      return;
+    }
+
+    setRenameDraft(selectedCategory.name);
+    setIsRenaming(true);
+  }, [selectedCategory]);
 
   useEffect(() => {
     setRenameDraft(selectedCategory?.name ?? "");
     setIsRenaming(false);
-  }, [selectedCategory?.id, selectedCategory?.name]);
+    createDraftRef.current = "";
+    clearLongPressTimer();
+    longPressTriggeredRef.current = false;
+  }, [clearLongPressTimer, selectedCategory?.id, selectedCategory?.name]);
+
+  useEffect(() => {
+    return () => {
+      clearLongPressTimer();
+    };
+  }, [clearLongPressTimer]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      const isTextInput =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+
+      if (isRenaming || isTextInput || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        event.preventDefault();
+        createDraftRef.current = "";
+        moveSelection(-1);
+        return;
+      }
+
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        event.preventDefault();
+        createDraftRef.current = "";
+        moveSelection(1);
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const nextName = createDraftRef.current.trim();
+        createDraftRef.current = "";
+
+        if (nextName) {
+          onCreateCategory(nextName);
+        }
+        return;
+      }
+
+      if (event.key === "Escape") {
+        createDraftRef.current = "";
+        return;
+      }
+
+      if (event.key === "Backspace") {
+        createDraftRef.current = createDraftRef.current.slice(0, -1);
+        return;
+      }
+
+      if (event.key.length === 1) {
+        createDraftRef.current += event.key;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isRenaming, moveSelection, onCreateCategory]);
+
+  const commitRename = useCallback(() => {
+    if (!selectedCategory) {
+      return;
+    }
+
+    onRenameCategory(selectedCategory.id, renameDraft);
+    setIsRenaming(false);
+  }, [onRenameCategory, renameDraft, selectedCategory]);
+
+  const cancelRename = useCallback(() => {
+    setRenameDraft(selectedCategory?.name ?? "");
+    setIsRenaming(false);
+  }, [selectedCategory?.name]);
+
+  const handleOrbPointerDown = useCallback(() => {
+    if (!selectedCategory || isRenaming) {
+      return;
+    }
+
+    clearLongPressTimer();
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      startRenaming();
+    }, 800);
+  }, [clearLongPressTimer, isRenaming, selectedCategory, startRenaming]);
+
+  const handleOrbPointerUp = useCallback(() => {
+    if (!selectedCategory || isRenaming) {
+      clearLongPressTimer();
+      return;
+    }
+
+    const wasLongPress = longPressTriggeredRef.current;
+    clearLongPressTimer();
+    longPressTriggeredRef.current = false;
+
+    if (!wasLongPress) {
+      onOpenMain(selectedCategory.id);
+    }
+  }, [clearLongPressTimer, isRenaming, onOpenMain, selectedCategory]);
+
+  const handleOrbKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!selectedCategory || isRenaming) {
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onOpenMain(selectedCategory.id);
+      }
+    },
+    [isRenaming, onOpenMain, selectedCategory],
+  );
+
+  const handleRenameKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commitRename();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelRename();
+      }
+    },
+    [cancelRename, commitRename],
+  );
 
   return (
     <div className="category-home" aria-label="Materias">
@@ -201,29 +376,15 @@ function HomeScreen({
                 key={category.id}
                 type="button"
                 className={`category-chip ${selectedCategory?.id === category.id ? "is-active" : ""}`}
-                onClick={() => onSelectCategory(category.id)}
+                onClick={() => {
+                  createDraftRef.current = "";
+                  onSelectCategory(category.id);
+                }}
               >
                 {category.name}
               </button>
             ))}
           </div>
-          <form
-            className="category-create-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onCreateCategory(draft);
-              setDraft("");
-            }}
-          >
-            <input
-              id="category-create-name"
-              name="category_create_name"
-              value={draft}
-              onChange={(event) => setDraft(event.currentTarget.value)}
-              placeholder="Nueva materia"
-            />
-            <button type="submit">Crear</button>
-          </form>
         </div>
 
         <div className="category-map-home">
@@ -243,23 +404,23 @@ function HomeScreen({
             </button>
           ))}
 
-          <button
-            type="button"
+          <div
+            role={selectedCategory && !isRenaming ? "button" : undefined}
+            tabIndex={selectedCategory && !isRenaming ? 0 : -1}
             className="category-main-orb is-selected"
-            disabled={!selectedCategory}
-            onClick={() => {
-              if (selectedCategory && !isRenaming) {
-                onOpenMain(selectedCategory.id);
-              }
-            }}
+            aria-disabled={!selectedCategory}
+            onPointerDown={handleOrbPointerDown}
+            onPointerUp={handleOrbPointerUp}
+            onPointerLeave={clearLongPressTimer}
+            onPointerCancel={clearLongPressTimer}
+            onKeyDown={handleOrbKeyDown}
           >
             {selectedCategory && isRenaming ? (
               <form
                 className="category-rename-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  onRenameCategory(selectedCategory.id, renameDraft);
-                  setIsRenaming(false);
+                  commitRename();
                 }}
               >
                 <input
@@ -270,26 +431,14 @@ function HomeScreen({
                   autoFocus
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => setRenameDraft(event.currentTarget.value)}
+                  onKeyDown={handleRenameKeyDown}
                 />
                 <span className="category-rename-hint">Enter para guardar</span>
               </form>
             ) : (
               <span>{selectedCategory?.name ?? "Crea una materia"}</span>
             )}
-          </button>
-
-          {selectedCategory ? (
-            <button
-              type="button"
-              className="category-rename-button"
-              onClick={() => {
-                setRenameDraft(selectedCategory.name);
-                setIsRenaming(true);
-              }}
-            >
-              Renombrar
-            </button>
-          ) : null}
+          </div>
         </div>
       </div>
     </div>
