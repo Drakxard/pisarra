@@ -509,6 +509,22 @@ function removeDeletedNodesFromMap(category: StudyCategory, mapId: string) {
   return deletedNodeIds;
 }
 
+function resolveSelectedCategoryId(
+  currentCategoryId: string | null,
+  fallbackCategoryId: string | null,
+  categories: Record<string, StudyCategory>,
+) {
+  if (currentCategoryId && categories[currentCategoryId]) {
+    return currentCategoryId;
+  }
+
+  if (fallbackCategoryId && categories[fallbackCategoryId]) {
+    return fallbackCategoryId;
+  }
+
+  return Object.keys(categories)[0] ?? null;
+}
+
 function syncNodeLabelsFromScene(map: StudyMap) {
   const labelElements = new Map(
     map.scene.elements
@@ -1112,15 +1128,19 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
     const previousCategories = get().categories;
     revokeUnusedImageUrls(previousCategories, normalized.categories);
 
-    set({
+    set((state) => ({
       categories: normalized.categories,
-      selectedCategoryId: normalized.selectedCategoryId,
+      selectedCategoryId: resolveSelectedCategoryId(
+        state.selectedCategoryId,
+        normalized.selectedCategoryId,
+        normalized.categories,
+      ),
       categoryDraftText: normalized.categoryDraftText,
       activeCategoryId: normalized.activeCategoryId,
       activeMapId: normalized.activeMapId,
       selectedNodeId: null,
       snapshotUpdatedAt: normalized.savedAt,
-    });
+    }));
   },
   mergeRemoteProjectSnapshot: (snapshot) => {
     const normalized = normalizeProjectSnapshot(snapshot);
@@ -1129,7 +1149,11 @@ export const useTreeStore = create<TreeStore>((set, get) => ({
 
     set((state) => ({
       categories: normalized.categories,
-      selectedCategoryId: normalized.selectedCategoryId,
+      selectedCategoryId: resolveSelectedCategoryId(
+        state.selectedCategoryId,
+        normalized.selectedCategoryId,
+        normalized.categories,
+      ),
       categoryDraftText: normalized.categoryDraftText,
       activeCategoryId:
         state.activeCategoryId && normalized.categories[state.activeCategoryId]
