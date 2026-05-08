@@ -201,11 +201,10 @@ function HomeScreen({
         return;
       }
 
-      const currentIndex = Math.max(
-        0,
-        categories.findIndex((category) => category.id === selectedCategory?.id),
-      );
+      const selectedIndex = categories.findIndex((category) => category.id === selectedCategory?.id);
+      const currentIndex = selectedIndex >= 0 ? selectedIndex : 0;
       const nextIndex = (currentIndex + direction + categories.length) % categories.length;
+      createDraftRef.current = "";
       onSelectCategory(categories[nextIndex].id);
     },
     [categories, onSelectCategory, selectedCategory?.id],
@@ -282,7 +281,9 @@ function HomeScreen({
       }
 
       if (event.key.length === 1) {
-        createDraftRef.current += event.key;
+        if (/^[\p{L}\p{N} ]$/u.test(event.key)) {
+          createDraftRef.current += event.key;
+        }
       }
     };
 
@@ -369,24 +370,6 @@ function HomeScreen({
     <div className="category-home" aria-label="Materias">
       <div className="question-stage-backdrop" />
       <div className="category-home-shell">
-        <div className="category-rail">
-          <div className="category-rail-list">
-            {categories.map((category) => (
-              <button
-                key={category.id}
-                type="button"
-                className={`category-chip ${selectedCategory?.id === category.id ? "is-active" : ""}`}
-                onClick={() => {
-                  createDraftRef.current = "";
-                  onSelectCategory(category.id);
-                }}
-              >
-                {category.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div className="category-map-home">
           {FIXED_SECTION_IDS.map((sectionId) => (
             <button
