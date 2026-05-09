@@ -689,6 +689,8 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const runtimeSceneRef = useRef<ExcalidrawSceneState | null>(null);
   const mapCanvasShellRef = useRef<HTMLDivElement | null>(null);
   const pdfObjectUrlsRef = useRef<Record<string, string>>({});
+  const pdfDropCleanupRef = useRef<(() => void) | null>(null);
+  const pdfDropListenerMapIdRef = useRef<string | null>(null);
 
   const categoriesList = useMemo(() => Object.values(categories), [categories]);
   const selectedCategory =
@@ -1532,14 +1534,15 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  useEffect(() => {
+  const attachPdfDropListeners = useEffectEvent(() => {
     const shell = mapCanvasShellRef.current;
-    const host =
-      shell?.querySelector<HTMLElement>(".excalidraw") ??
-      shell?.querySelector<HTMLElement>(".excalidraw-host") ??
-      null;
+    const mapId = activeMapRef.current?.id ?? null;
 
-    if (!host || pureMapSession || !activeMap) {
+    pdfDropCleanupRef.current?.();
+    pdfDropCleanupRef.current = null;
+    pdfDropListenerMapIdRef.current = null;
+
+    if (!shell || pureMapSession || !mapId) {
       return;
     }
 
@@ -1570,14 +1573,64 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       void handlePdfDrop(event);
     };
 
-    host.addEventListener("dragover", handleNativeDragOver, true);
-    host.addEventListener("drop", handleNativeDrop, true);
+    const bindToHost = (host: HTMLElement) => {
+      host.addEventListener("dragover", handleNativeDragOver, true);
+      host.addEventListener("drop", handleNativeDrop, true);
+      pdfDropListenerMapIdRef.current = mapId;
+      console.info("[StudyTree] pdf-drop-listeners-attached", { mapId });
+
+      pdfDropCleanupRef.current = () => {
+        host.removeEventListener("dragover", handleNativeDragOver, true);
+        host.removeEventListener("drop", handleNativeDrop, true);
+        pdfDropListenerMapIdRef.current = null;
+        console.info("[StudyTree] pdf-drop-listeners-detached", { mapId });
+      };
+    };
+
+    const existingHost = shell.querySelector<HTMLElement>(".excalidraw");
+    if (existingHost) {
+      bindToHost(existingHost);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const host = shell.querySelector<HTMLElement>(".excalidraw");
+
+      if (!host) {
+        return;
+      }
+
+      observer.disconnect();
+      bindToHost(host);
+    });
+
+    observer.observe(shell, {
+      childList: true,
+      subtree: true,
+    });
+
+    pdfDropCleanupRef.current = () => {
+      observer.disconnect();
+      pdfDropListenerMapIdRef.current = null;
+    };
+  });
+
+  useEffect(() => {
+    if (canvasStatus !== "ready" || pureMapSession || !activeMap) {
+      pdfDropCleanupRef.current?.();
+      pdfDropCleanupRef.current = null;
+      pdfDropListenerMapIdRef.current = null;
+      return;
+    }
+
+    attachPdfDropListeners();
 
     return () => {
-      host.removeEventListener("dragover", handleNativeDragOver, true);
-      host.removeEventListener("drop", handleNativeDrop, true);
+      pdfDropCleanupRef.current?.();
+      pdfDropCleanupRef.current = null;
+      pdfDropListenerMapIdRef.current = null;
     };
-  }, [activeMap?.id, pureMapSession, handlePdfDrop]);
+  }, [activeMap?.id, canvasStatus, pureMapSession, attachPdfDropListeners]);
 
   const handleCardPointerUp = useEffectEvent((event: PointerEvent, elementId: string | null | undefined, dragged: boolean) => {
     if (dragged || event.detail < 2) {
