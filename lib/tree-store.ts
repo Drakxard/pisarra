@@ -1,6 +1,6 @@
 "use client";
 
-import type { BinaryFileData } from "@/lib/excalidraw";
+import type { BinaryFileData } from "@excalidraw/excalidraw/types";
 import { create } from "zustand";
 import {
   createOrderedElementIndices,

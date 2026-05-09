@@ -38,9 +38,8 @@ El repositorio ignora dependencias, builds locales, configuracion de Vercel, var
 
 ## Mantenimiento de Excalidraw
 
-La app usa un fork local basado en `@excalidraw/excalidraw@0.18.1`, alojado en `vendor-excalidraw/`, con un cambio puntual: `onDropFile` para consumir drops de archivos custom antes del import interno de Excalidraw.
+La app integra `@excalidraw/excalidraw` desde npm. `public/excalidraw/` se usa solo para assets estaticos servidos por `EXCALIDRAW_ASSET_PATH`.
 
 - Mantener autoalojado solo `public/excalidraw/fonts/`.
-- El cambio local vive en `vendor-excalidraw/dist/dev/index.js` y se tipa desde `lib/excalidraw.ts`.
-- Si se actualiza Excalidraw, rebasar el fork sobre la misma version base y volver a aplicar `onDropFile` en `handleAppOnDrop()`.
-- No copiar `vendor-excalidraw/dist/dev/index.js`, `index.css`, `chunk-*.js`, `subset-*.chunk.js` ni los directorios `data/` o `locales/` a `public/`.
+- No copiar `node_modules/@excalidraw/excalidraw/dist/prod/index.js`, `index.css`, `chunk-*.js`, `subset-*.chunk.js` ni los directorios `data/` o `locales/` a `public/`.
+- Si se actualiza Excalidraw, refrescar unicamente `node_modules/@excalidraw/excalidraw/dist/prod/fonts` dentro de `public/excalidraw/fonts/`.

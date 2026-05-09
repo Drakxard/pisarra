@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { ExcalidrawDropFilePayload, ExcalidrawImperativeAPI } from "@/lib/excalidraw";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { ExcalidrawMapCanvas } from "@/components/excalidraw-map-canvas";
 import {
   EmptyProjectFileError,
@@ -41,6 +41,9 @@ import { useTreeStore } from "@/lib/tree-store";
 
 const AUTOSAVE_DEBOUNCE_MS = 450;
 const CANVAS_MOUNT_TIMEOUT_MS = 6_000;
+const PDF_DROP_PENDING_WINDOW_MS = 3_000;
+const PDF_DROP_FALLBACK_INSERT_MS = 250;
+const EXCALIDRAW_INVALID_FILE_ERROR_TEXT = "No se pudo cargar el archivo no válido";
 
 type AppBootState = "loading" | "needs-directory" | "ready";
 type MapCanvasStatus = "idle" | "loading" | "ready" | "error";
@@ -75,10 +78,23 @@ type PureMapSession = {
 
 type PureMapSaveStatus = "idle" | "loading" | "saving" | "saved" | "error";
 
-type PdfInsertPayload = {
-  sceneX: number;
-  sceneY: number;
+type PdfDropPayload = {
+  clientX: number;
+  clientY: number;
   files: File[];
+};
+
+type PendingPdfDropStatus = "pending" | "consumed" | "expired";
+
+type PendingPdfDrop = PdfDropPayload & {
+  createdAt: number;
+  status: PendingPdfDropStatus;
+};
+
+type ChromeDownloadUrlPayload = {
+  mimeType: string;
+  fileName: string;
+  url: string;
 };
 
 function normalizeSearchText(value: string) {
@@ -206,6 +222,218 @@ function getPdfAssetPathFromElement(map: StudyMap | null, elementId: string | nu
 
 function isPdfFile(file: File) {
   return file.type === "application/pdf" || file.name.toLocaleLowerCase().endsWith(".pdf");
+}
+
+function sanitizeDroppedPdfName(value: string | null | undefined) {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return "documento.pdf";
+  }
+
+  return trimmed.toLocaleLowerCase().endsWith(".pdf") ? trimmed : `${trimmed}.pdf`;
+}
+
+function inferPdfNameFromUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const pathname = decodeURIComponent(url.pathname);
+    const candidate = pathname.split("/").pop();
+    return sanitizeDroppedPdfName(candidate && candidate.length > 0 ? candidate : "documento.pdf");
+  } catch {
+    return "documento.pdf";
+  }
+}
+
+function getFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
+  if (!dataTransfer) {
+    return [] as File[];
+  }
+
+  const filesFromItems = Array.from(dataTransfer.items ?? [])
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file instanceof File);
+  const filesFromList = Array.from(dataTransfer.files ?? []);
+  const deduped = new Map<string, File>();
+
+  for (const file of [...filesFromItems, ...filesFromList]) {
+    deduped.set(`${file.name}:${file.size}:${file.lastModified}:${file.type}`, file);
+  }
+
+  return Array.from(deduped.values());
+}
+
+function getPdfFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
+  return getFilesFromDataTransfer(dataTransfer).filter(isPdfFile);
+}
+
+function parseDownloadUrlPayload(raw: string | null | undefined): ChromeDownloadUrlPayload | null {
+  if (!raw) {
+    return null;
+  }
+
+  const firstColon = raw.indexOf(":");
+  const secondColon = raw.indexOf(":", firstColon + 1);
+
+  if (firstColon <= 0 || secondColon <= firstColon) {
+    return null;
+  }
+
+  const mimeType = raw.slice(0, firstColon).trim();
+  const fileName = raw.slice(firstColon + 1, secondColon).trim();
+  const url = raw.slice(secondColon + 1).trim();
+
+  if (!mimeType || !url) {
+    return null;
+  }
+
+  return {
+    mimeType,
+    fileName: sanitizeDroppedPdfName(fileName || "documento.pdf"),
+    url,
+  };
+}
+
+function getUriListPayload(raw: string | null | undefined) {
+  if (!raw) {
+    return null;
+  }
+
+  const url = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith("#"));
+
+  return url ?? null;
+}
+
+async function resolvePdfFileFromUrl(url: string, preferredFileName?: string) {
+  let parsedUrl: URL | null = null;
+
+  try {
+    parsedUrl = new URL(url, window.location.href);
+  } catch {
+    throw new Error("Chrome no expuso una URL valida para el PDF.");
+  }
+
+  const protocol = parsedUrl.protocol;
+  const sameOrigin = parsedUrl.origin === window.location.origin;
+
+  if (!["blob:", "data:", "https:", "http:"].includes(protocol)) {
+    throw new Error("Chrome expuso un origen de PDF no compatible para este arrastre.");
+  }
+
+  if ((protocol === "http:" || protocol === "https:") && !sameOrigin && protocol !== "https:") {
+    throw new Error("Chrome expuso una URL del PDF que no se puede leer de forma segura.");
+  }
+
+  const response = await fetch(parsedUrl.toString());
+
+  if (!response.ok) {
+    throw new Error(`No se pudo recuperar el PDF arrastrado (${response.status}).`);
+  }
+
+  const blob = await response.blob();
+  const fileName = sanitizeDroppedPdfName(preferredFileName ?? inferPdfNameFromUrl(parsedUrl.toString()));
+  const mimeType = blob.type || "application/pdf";
+
+  if (mimeType !== "application/pdf" && !fileName.toLocaleLowerCase().endsWith(".pdf")) {
+    throw new Error("La URL arrastrada no corresponde a un PDF legible.");
+  }
+
+  return new File([blob], fileName, {
+    type: mimeType === "application/pdf" ? mimeType : "application/pdf",
+    lastModified: Date.now(),
+  });
+}
+
+async function resolveDroppedPdf(dataTransfer: DataTransfer | null | undefined) {
+  if (!dataTransfer) {
+    return [] as File[];
+  }
+
+  const items = Array.from(dataTransfer.items ?? []).filter((item) => item.kind === "file");
+  const handlePromises = items.map((item) => item.getAsFileSystemHandle?.() ?? Promise.resolve(null));
+  const handles = handlePromises.length > 0 ? await Promise.all(handlePromises) : [];
+  const filesFromHandles = await Promise.all(
+    handles.map(async (handle) => {
+      if (!handle || handle.kind !== "file") {
+        return null;
+      }
+
+      return (handle as FileSystemFileHandle).getFile();
+    }),
+  );
+  const directFiles = getPdfFilesFromDataTransfer(dataTransfer);
+  const resolvedFiles = [...filesFromHandles.filter((file): file is File => file instanceof File), ...directFiles].filter(isPdfFile);
+  const deduped = new Map<string, File>();
+
+  for (const file of resolvedFiles) {
+    deduped.set(`${file.name}:${file.size}:${file.lastModified}:${file.type}`, file);
+  }
+
+  if (deduped.size > 0) {
+    return Array.from(deduped.values());
+  }
+
+  const downloadUrlPayload = parseDownloadUrlPayload(dataTransfer.getData("DownloadURL"));
+
+  if (downloadUrlPayload && (downloadUrlPayload.mimeType === "application/pdf" || downloadUrlPayload.fileName.toLocaleLowerCase().endsWith(".pdf"))) {
+    return [await resolvePdfFileFromUrl(downloadUrlPayload.url, downloadUrlPayload.fileName)];
+  }
+
+  const uriListPayload = getUriListPayload(dataTransfer.getData("text/uri-list"));
+
+  if (uriListPayload && (uriListPayload.toLocaleLowerCase().includes(".pdf") || uriListPayload.startsWith("blob:") || uriListPayload.startsWith("data:"))) {
+    return [await resolvePdfFileFromUrl(uriListPayload)];
+  }
+
+  throw new Error("Chrome no expuso el PDF arrastrado de forma legible. Prueba arrastrarlo desde el Explorador o descargalo primero.");
+}
+
+function hasFileDragPayload(dataTransfer: DataTransfer | null | undefined) {
+  if (!dataTransfer) {
+    return false;
+  }
+
+  if (Array.from(dataTransfer.items ?? []).some((item) => item.kind === "file")) {
+    return true;
+  }
+
+  return Array.from(dataTransfer.types ?? []).includes("Files");
+}
+
+function shouldTreatDragAsPdf(dataTransfer: DataTransfer | null | undefined) {
+  if (!dataTransfer) {
+    return false;
+  }
+
+  const itemTypes = Array.from(dataTransfer.items ?? [])
+    .filter((item) => item.kind === "file")
+    .map((item) => item.type.toLocaleLowerCase());
+
+  if (itemTypes.some((type) => type === "application/pdf" || type.endsWith("/pdf"))) {
+    return true;
+  }
+
+  if (getPdfFilesFromDataTransfer(dataTransfer).length > 0) {
+    return true;
+  }
+
+  const downloadUrlPayload = parseDownloadUrlPayload(dataTransfer.getData("DownloadURL"));
+
+  if (downloadUrlPayload && (downloadUrlPayload.mimeType === "application/pdf" || downloadUrlPayload.fileName.toLocaleLowerCase().endsWith(".pdf"))) {
+    return true;
+  }
+
+  const uriListPayload = getUriListPayload(dataTransfer.getData("text/uri-list"));
+
+  if (uriListPayload && (uriListPayload.toLocaleLowerCase().includes(".pdf") || uriListPayload.startsWith("blob:") || uriListPayload.startsWith("data:"))) {
+    return true;
+  }
+
+  return itemTypes.length === 0 && Array.from(dataTransfer.types ?? []).includes("Files");
 }
 
 function createPdfSceneElements(args: {
@@ -693,7 +921,11 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const activeMapRef = useRef<StudyMap | null>(null);
   const buildInfoRef = useRef(buildInfo);
   const runtimeSceneRef = useRef<ExcalidrawSceneState | null>(null);
+  const mapCanvasShellRef = useRef<HTMLDivElement | null>(null);
+  const mapCanvasHostRef = useRef<HTMLDivElement | null>(null);
   const pdfObjectUrlsRef = useRef<Record<string, string>>({});
+  const pendingPdfDropRef = useRef<PendingPdfDrop | null>(null);
+  const pendingPdfDropTimeoutRef = useRef<number | null>(null);
 
   const categoriesList = useMemo(() => Object.values(categories), [categories]);
   const selectedCategory =
@@ -1464,7 +1696,56 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const insertPdfCardsAtPosition = useEffectEvent(async ({ sceneX, sceneY, files }: PdfInsertPayload) => {
+  const clearPendingPdfDrop = useEffectEvent((status: PendingPdfDropStatus = "expired") => {
+    if (pendingPdfDropTimeoutRef.current !== null) {
+      window.clearTimeout(pendingPdfDropTimeoutRef.current);
+      pendingPdfDropTimeoutRef.current = null;
+    }
+
+    if (pendingPdfDropRef.current) {
+      pendingPdfDropRef.current.status = status;
+      pendingPdfDropRef.current = null;
+    }
+  });
+
+  const getFreshPendingPdfDrop = useEffectEvent(() => {
+    const pending = pendingPdfDropRef.current;
+
+    if (!pending || pending.status !== "pending") {
+      return null;
+    }
+
+    if (Date.now() - pending.createdAt > PDF_DROP_PENDING_WINDOW_MS) {
+      clearPendingPdfDrop("expired");
+      return null;
+    }
+
+    return pending;
+  });
+
+  const schedulePendingPdfFallbackInsert = useEffectEvent(() => {
+    if (pendingPdfDropTimeoutRef.current !== null) {
+      window.clearTimeout(pendingPdfDropTimeoutRef.current);
+    }
+
+    pendingPdfDropTimeoutRef.current = window.setTimeout(() => {
+      const pending = getFreshPendingPdfDrop();
+
+      if (!pending) {
+        return;
+      }
+
+      pending.status = "consumed";
+      void insertPdfCardsAtPosition({
+        clientX: pending.clientX,
+        clientY: pending.clientY,
+        files: pending.files,
+      });
+      clearPendingPdfDrop("consumed");
+    }, PDF_DROP_FALLBACK_INSERT_MS);
+  });
+
+  const insertPdfCardsAtPosition = useEffectEvent(async ({ clientX, clientY, files }: PdfDropPayload) => {
     const api = excalidrawApiRef.current;
     const handle = directoryHandle;
 
@@ -1483,8 +1764,11 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
 
     try {
-      const baseX = Math.round(sceneX - 160);
-      const baseY = Math.round(sceneY - 100);
+      const appState = api.getAppState();
+      const zoomValue = appState.zoom.value || 1;
+      const rect = mapCanvasShellRef.current?.getBoundingClientRect();
+      const baseX = Math.round(((clientX - (rect?.left ?? 0)) - appState.scrollX) / zoomValue - 160);
+      const baseY = Math.round(((clientY - (rect?.top ?? 0)) - appState.scrollY) / zoomValue - 100);
       const currentElements = api
         .getSceneElementsIncludingDeleted()
         .filter((element) => element.type !== "selection")
@@ -1529,29 +1813,170 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const handleCanvasPdfDrop = useEffectEvent(async ({ file, fileHandle, sceneX, sceneY }: ExcalidrawDropFilePayload) => {
-    if (pureMapSession) {
-      return false;
+  const closeExcalidrawErrorModal = useEffectEvent((modal: HTMLElement) => {
+    modal.style.opacity = "0";
+    modal.style.pointerEvents = "none";
+
+    const background = modal.querySelector<HTMLElement>(".Modal__background");
+
+    if (background) {
+      background.click();
+      return;
     }
 
-    const resolvedFile =
-      file ??
-      (fileHandle && "kind" in fileHandle && fileHandle.kind === "file"
-        ? await (fileHandle as FileSystemFileHandle).getFile()
-        : null);
+    const closeButton = modal.querySelector<HTMLElement>(".Dialog__close");
+    if (closeButton) {
+      closeButton.click();
+    }
+  });
 
-    if (!resolvedFile || !isPdfFile(resolvedFile)) {
-      return false;
+  const handlePendingPdfErrorModal = useEffectEvent(() => {
+    const pending = getFreshPendingPdfDrop();
+    const host = mapCanvasHostRef.current;
+
+    if (!pending || !host) {
+      return;
     }
 
-    await insertPdfCardsAtPosition({
-      sceneX,
-      sceneY,
-      files: [resolvedFile],
+    const modals = Array.from(document.querySelectorAll<HTMLElement>(".excalidraw-modal-container .Modal"));
+    const matchingModal = modals.find((modal) => {
+      const content = modal.querySelector<HTMLElement>(".Dialog__content");
+      return content?.textContent?.includes(EXCALIDRAW_INVALID_FILE_ERROR_TEXT);
     });
 
-    return true;
+    if (!matchingModal) {
+      return;
+    }
+
+    const canvasRoot = host.querySelector(".excalidraw");
+
+    if (canvasRoot && !document.body.contains(canvasRoot)) {
+      return;
+    }
+
+    pending.status = "consumed";
+    closeExcalidrawErrorModal(matchingModal);
+    void insertPdfCardsAtPosition({
+      clientX: pending.clientX,
+      clientY: pending.clientY,
+      files: pending.files,
+    });
+    clearPendingPdfDrop("consumed");
   });
+
+  const handleNativePdfDragOver = useEffectEvent((event: DragEvent) => {
+    if (pureMapSession || !shouldTreatDragAsPdf(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+  });
+
+  const handleNativePdfDrop = useEffectEvent((event: DragEvent) => {
+    if (pureMapSession) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    const dataTransfer = event.dataTransfer;
+
+    void (async () => {
+      try {
+        const files = await resolveDroppedPdf(dataTransfer);
+
+        if (files.length === 0) {
+          throw new Error("No se pudo recuperar ningun PDF del arrastre.");
+        }
+
+        pendingPdfDropRef.current = {
+          clientX,
+          clientY,
+          files,
+          createdAt: Date.now(),
+          status: "pending",
+        };
+        setPersistenceError(null);
+        schedulePendingPdfFallbackInsert();
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Chrome no expuso el PDF arrastrado de forma legible.";
+        setPersistenceError(message);
+      }
+    })();
+  });
+
+  useEffect(() => {
+    if (pureMapSession || canvasStatus !== "ready" || !activeMap) {
+      clearPendingPdfDrop("expired");
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      handlePendingPdfErrorModal();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => {
+      observer.disconnect();
+      clearPendingPdfDrop("expired");
+    };
+  }, [activeMap?.id, canvasStatus, pureMapSession, clearPendingPdfDrop, handlePendingPdfErrorModal]);
+
+  useEffect(() => {
+    const host = mapCanvasHostRef.current;
+
+    if (!host || canvasStatus !== "ready" || pureMapSession || !activeMap) {
+      return;
+    }
+
+    const handleDragOver = (event: Event) => {
+      if (!(event instanceof DragEvent) || !hasFileDragPayload(event.dataTransfer)) {
+        return;
+      }
+
+      if (!event.composedPath().includes(host)) {
+        return;
+      }
+
+      handleNativePdfDragOver(event);
+    };
+
+    const handleDrop = (event: Event) => {
+      if (!(event instanceof DragEvent)) {
+        return;
+      }
+
+      if (!event.composedPath().includes(host)) {
+        return;
+      }
+      handleNativePdfDrop(event);
+    };
+
+    document.addEventListener("dragover", handleDragOver, true);
+    document.addEventListener("drop", handleDrop, true);
+
+    return () => {
+      document.removeEventListener("dragover", handleDragOver, true);
+      document.removeEventListener("drop", handleDrop, true);
+    };
+  }, [activeMap?.id, canvasStatus, pureMapSession, handleNativePdfDragOver, handleNativePdfDrop]);
 
   const handleCardPointerUp = useEffectEvent((event: PointerEvent, elementId: string | null | undefined, dragged: boolean) => {
     if (dragged || event.detail < 2) {
@@ -1782,15 +2207,18 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
             </label>
           </div>
 
-          <div className="immersive-map-canvas">
+          <div
+            ref={mapCanvasShellRef}
+            className="immersive-map-canvas"
+          >
             <ExcalidrawMapCanvas
+              ref={mapCanvasHostRef}
               key={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}:${canvasRetryKey}`}
               errorKey={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}:${canvasRetryKey}`}
               initialData={excalidrawInitialData}
               excalidrawAPI={(api) => {
                 handleCanvasApi(api);
               }}
-              onDropFile={handleCanvasPdfDrop}
               onRenderError={(error) => {
                 queueMicrotask(() => {
                   console.error("[StudyTree] canvas-error", {
