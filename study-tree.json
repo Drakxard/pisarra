@@ -1,235 +1,1212 @@
 {
-  "version": 6,
+  "version": 7,
   "categories": {
     "84490347-c853-461d-9d68-7437b9d512ff": {
       "id": "84490347-c853-461d-9d68-7437b9d512ff",
       "name": "Álgebra 2",
-      "cards": {
-        "12f4d6b9-bfe2-451a-8791-6a1e86569d96": {
-          "id": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
-          "text": "ejemplo",
-          "detailsText": "La integral definida de $y = x$ evaluada desde $1$ hasta $2$ es **$1.5$** (o $\\frac{3}{2}$).\n\n1. **Encontrar la antiderivada:** La integral indefinida de $x$ es $\\frac{x^2}{2}$.\n2. **Evaluar los límites (Regla de Barrow):** Aplicamos los límites de integración de $1$ a $2$:\n   $$ \\int_{1}^{2} x \\, dx = \\left[ \\frac{x^2}{2} \\right]_{1}^{2} $$\n3. **Calcular la diferencia:**\n   $$ \\left( \\frac{2^2}{2} \\right) - \\left( \\frac{1^2}{2} \\right) = \\frac{4}{2} - \\frac{1}{2} = 2 - 0.5 = 1.5 $$",
-          "image": {
-            "path": "study-assets/12f4d6b9-bfe2-451a-8791-6a1e86569d96.png",
-            "mimeType": "image/png",
-            "name": "image.png",
-            "width": 1366,
-            "height": 768
-          },
-          "position": {
-            "x": 17,
-            "y": 18.25
-          },
-          "zIndex": 61,
-          "createdAt": "2026-04-30T15:15:54.109Z",
-          "updatedAt": "2026-05-02T19:20:15.030Z",
-          "size": {
-            "width": 384,
-            "height": 262
-          },
-          "detailsTable": null,
-          "detailsImages": [],
-          "detailsTextBoxes": [],
-          "exerciseReferences": []
-        },
-        "8ef54f07-07f0-4d55-aa07-c4f97939c0a6": {
-          "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
-          "text": "Sabado",
-          "detailsText": "Enfocarse\n\n-- Cursado--\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica: aprenderlo bien, lunes repaso\nLógica: Parcial\nProb: Planera proy final, muestra parcial\n--\n--Mesas--\nÁlgebra y Cálculo 2: Debería, tener un \"cronograma tentativo\", faltan 8 semanas/2 meses\n\n\nMientras lo veo, debo ir recolectando lo que podria complicarse, texto sutil\nAdemas, ir lineal respecto a los temas. \nPodcast de los teoremas?",
-          "image": null,
-          "position": {
-            "x": 487,
-            "y": 158
-          },
-          "zIndex": 62,
-          "createdAt": "2026-05-02T19:14:11.647Z",
-          "updatedAt": "2026-05-02T21:09:22.338Z",
-          "size": {
-            "width": 384,
-            "height": 58
-          },
-          "detailsTable": null,
-          "detailsImages": [],
-          "detailsTextBoxes": [],
-          "exerciseReferences": []
-        }
-      },
-      "selectedCardId": null,
-      "draftText": "",
-      "sections": {
-        "definitions": {
-          "id": "definitions",
-          "name": "Definiciones",
-          "cards": {
-            "c82983a1-4337-44be-9472-7d983005716a": {
-              "id": "c82983a1-4337-44be-9472-7d983005716a",
-              "text": "Seccion 5.1",
-              "detailsText": "",
-              "detailsTable": null,
-              "detailsImages": [],
+      "maps": {
+        "84490347-c853-461d-9d68-7437b9d512ff::main": {
+          "id": "84490347-c853-461d-9d68-7437b9d512ff::main",
+          "title": "Álgebra 2",
+          "kind": "main",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": null,
+          "contentInitializedAt": null,
+          "nodes": {
+            "12f4d6b9-bfe2-451a-8791-6a1e86569d96": {
+              "nodeId": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
+              "elementId": "12f4d6b9-bfe2-451a-8791-6a1e86569d96::container",
+              "labelElementId": "12f4d6b9-bfe2-451a-8791-6a1e86569d96::label",
+              "label": "ejemplo",
+              "childMapId": "12f4d6b9-bfe2-451a-8791-6a1e86569d96::child-map",
+              "note": "La integral definida de $y = x$ evaluada desde $1$ hasta $2$ es **$1.5$** (o $\\frac{3}{2}$).\n\n1. **Encontrar la antiderivada:** La integral indefinida de $x$ es $\\frac{x^2}{2}$.\n2. **Evaluar los límites (Regla de Barrow):** Aplicamos los límites de integración de $1$ a $2$:\n   $$ \\int_{1}^{2} x \\, dx = \\left[ \\frac{x^2}{2} \\right]_{1}^{2} $$\n3. **Calcular la diferencia:**\n   $$ \\left( \\frac{2^2}{2} \\right) - \\left( \\frac{1^2}{2} \\right) = \\frac{4}{2} - \\frac{1}{2} = 2 - 0.5 = 1.5 $$",
+              "image": {
+                "path": "study-assets/12f4d6b9-bfe2-451a-8791-6a1e86569d96.png",
+                "mimeType": "image/png",
+                "name": "image.png",
+                "width": 1366,
+                "height": 768,
+                "previewUrl": "blob:https://pizarracursado.vercel.app/4095b92b-b4f5-4f6e-9c1d-62c74992ff04",
+                "pendingBlob": null
+              },
+              "legacyDetails": null,
+              "createdAt": "2026-04-30T15:15:54.109Z",
+              "updatedAt": "2026-05-02T19:20:15.030Z"
+            },
+            "8ef54f07-07f0-4d55-aa07-c4f97939c0a6": {
+              "nodeId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
+              "elementId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::container",
+              "labelElementId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::label",
+              "label": "Sabado",
+              "childMapId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::child-map",
+              "note": "Enfocarse\n\n-- Cursado--\nCálculo 3: Secciones 14.7 y 14.8 creo, para el lunes\nFísica: aprenderlo bien, lunes repaso\nLógica: Parcial\nProb: Planera proy final, muestra parcial\n--\n--Mesas--\nÁlgebra y Cálculo 2: Debería, tener un \"cronograma tentativo\", faltan 8 semanas/2 meses\n\n\nMientras lo veo, debo ir recolectando lo que podria complicarse, texto sutil\nAdemas, ir lineal respecto a los temas. \nPodcast de los teoremas?",
               "image": null,
-              "position": {
-                "x": 53,
-                "y": 128
-              },
-              "zIndex": 28,
-              "createdAt": "2026-05-02T20:39:49.340Z",
-              "updatedAt": "2026-05-02T21:06:23.856Z",
-              "size": {
+              "legacyDetails": null,
+              "createdAt": "2026-05-02T19:14:11.647Z",
+              "updatedAt": "2026-05-02T21:09:22.338Z"
+            }
+          },
+          "scene": {
+            "elements": [
+              {
+                "id": "12f4d6b9-bfe2-451a-8791-6a1e86569d96::container",
+                "type": "rectangle",
+                "x": 17,
+                "y": 18,
                 "width": 384,
-                "height": 58
+                "height": 262,
+                "strokeColor": "#4f3c2c",
+                "backgroundColor": "#fff9ef",
+                "fillStyle": "solid",
+                "strokeWidth": 2,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 5058521,
+                "version": 1,
+                "versionNonce": 2702940,
+                "index": "a0",
+                "isDeleted": false,
+                "groupIds": [
+                  "12f4d6b9-bfe2-451a-8791-6a1e86569d96::group"
+                ],
+                "frameId": null,
+                "boundElements": [
+                  {
+                    "id": "12f4d6b9-bfe2-451a-8791-6a1e86569d96::label",
+                    "type": "text"
+                  }
+                ],
+                "updated": 1777562154109,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
+                  "role": "map-card-container"
+                }
               },
-              "detailsTextBoxes": [],
-              "exerciseReferences": []
+              {
+                "id": "12f4d6b9-bfe2-451a-8791-6a1e86569d96::label",
+                "type": "text",
+                "x": 160.5,
+                "y": 134,
+                "width": 97,
+                "height": 30,
+                "strokeColor": "#1a1a1a",
+                "backgroundColor": "transparent",
+                "fillStyle": "solid",
+                "strokeWidth": 1,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 8708907,
+                "version": 1,
+                "versionNonce": 7320983,
+                "index": "a1",
+                "isDeleted": false,
+                "groupIds": [
+                  "12f4d6b9-bfe2-451a-8791-6a1e86569d96::group"
+                ],
+                "frameId": null,
+                "boundElements": null,
+                "updated": 1777562154109,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
+                  "role": "map-card-label"
+                },
+                "fontSize": 24,
+                "fontFamily": 1,
+                "text": "ejemplo",
+                "textAlign": "center",
+                "verticalAlign": "middle",
+                "containerId": "12f4d6b9-bfe2-451a-8791-6a1e86569d96::container",
+                "originalText": "ejemplo",
+                "autoResize": true,
+                "lineHeight": 1.25
+              },
+              {
+                "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::container",
+                "type": "rectangle",
+                "x": 487,
+                "y": 158,
+                "width": 384,
+                "height": 96,
+                "strokeColor": "#4f3c2c",
+                "backgroundColor": "#fff9ef",
+                "fillStyle": "solid",
+                "strokeWidth": 2,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 2460073,
+                "version": 1,
+                "versionNonce": 8722102,
+                "index": "a2",
+                "isDeleted": false,
+                "groupIds": [
+                  "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::group"
+                ],
+                "frameId": null,
+                "boundElements": [
+                  {
+                    "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::label",
+                    "type": "text"
+                  }
+                ],
+                "updated": 1777749251647,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
+                  "role": "map-card-container"
+                }
+              },
+              {
+                "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::label",
+                "type": "text",
+                "x": 637,
+                "y": 191,
+                "width": 84,
+                "height": 30,
+                "strokeColor": "#1a1a1a",
+                "backgroundColor": "transparent",
+                "fillStyle": "solid",
+                "strokeWidth": 1,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 2245624,
+                "version": 1,
+                "versionNonce": 5272024,
+                "index": "a3",
+                "isDeleted": false,
+                "groupIds": [
+                  "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::group"
+                ],
+                "frameId": null,
+                "boundElements": null,
+                "updated": 1777749251647,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
+                  "role": "map-card-label"
+                },
+                "fontSize": 24,
+                "fontFamily": 1,
+                "text": "Sabado",
+                "textAlign": "center",
+                "verticalAlign": "middle",
+                "containerId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::container",
+                "originalText": "Sabado",
+                "autoResize": true,
+                "lineHeight": 1.25
+              }
+            ],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-02T20:15:43.876Z",
+          "updatedAt": "2026-05-02T20:15:43.876Z"
+        },
+        "84490347-c853-461d-9d68-7437b9d512ff::section::definitions": {
+          "id": "84490347-c853-461d-9d68-7437b9d512ff::section::definitions",
+          "title": "Definiciones",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "definitions",
+          "contentInitializedAt": null,
+          "nodes": {
+            "c82983a1-4337-44be-9472-7d983005716a": {
+              "nodeId": "c82983a1-4337-44be-9472-7d983005716a",
+              "elementId": "c82983a1-4337-44be-9472-7d983005716a::container",
+              "labelElementId": "c82983a1-4337-44be-9472-7d983005716a::label",
+              "label": "Seccion 5.1",
+              "childMapId": "c82983a1-4337-44be-9472-7d983005716a::child-map",
+              "note": "",
+              "image": null,
+              "legacyDetails": null,
+              "createdAt": "2026-05-02T20:39:49.340Z",
+              "updatedAt": "2026-05-02T21:06:23.856Z"
             },
             "2b99c60c-b76b-4593-8ec4-12cfb9f97474": {
-              "id": "2b99c60c-b76b-4593-8ec4-12cfb9f97474",
-              "text": "Espacio vectorial",
-              "detailsText": "",
-              "detailsTable": null,
-              "detailsImages": [],
+              "nodeId": "2b99c60c-b76b-4593-8ec4-12cfb9f97474",
+              "elementId": "2b99c60c-b76b-4593-8ec4-12cfb9f97474::container",
+              "labelElementId": "2b99c60c-b76b-4593-8ec4-12cfb9f97474::label",
+              "label": "Espacio vectorial",
+              "childMapId": "2b99c60c-b76b-4593-8ec4-12cfb9f97474::child-map",
+              "note": "",
               "image": {
                 "path": "study-assets/2b99c60c-b76b-4593-8ec4-12cfb9f97474.png",
                 "mimeType": "image/png",
                 "name": "image.png",
                 "width": 1077,
-                "height": 227
+                "height": 227,
+                "previewUrl": "blob:https://pizarracursado.vercel.app/7756cc1e-fe85-4b4b-944f-71d19e0628ef",
+                "pendingBlob": null
               },
-              "position": {
-                "x": 152,
-                "y": 211
-              },
-              "zIndex": 37,
+              "legacyDetails": null,
               "createdAt": "2026-05-02T20:40:29.501Z",
-              "updatedAt": "2026-05-06T19:55:47.180Z",
-              "size": {
-                "width": 384,
-                "height": 145
-              },
-              "detailsTextBoxes": [],
-              "exerciseReferences": []
+              "updatedAt": "2026-05-06T19:55:47.180Z"
             }
           },
-          "selectedCardId": null,
-          "draftText": "",
+          "scene": {
+            "elements": [
+              {
+                "id": "c82983a1-4337-44be-9472-7d983005716a::container",
+                "type": "rectangle",
+                "x": 53,
+                "y": 128,
+                "width": 384,
+                "height": 96,
+                "strokeColor": "#4f3c2c",
+                "backgroundColor": "#fff9ef",
+                "fillStyle": "solid",
+                "strokeWidth": 2,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 1304585,
+                "version": 1,
+                "versionNonce": 1883667,
+                "index": "a0",
+                "isDeleted": false,
+                "groupIds": [
+                  "c82983a1-4337-44be-9472-7d983005716a::group"
+                ],
+                "frameId": null,
+                "boundElements": [
+                  {
+                    "id": "c82983a1-4337-44be-9472-7d983005716a::label",
+                    "type": "text"
+                  }
+                ],
+                "updated": 1777754389340,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "c82983a1-4337-44be-9472-7d983005716a",
+                  "role": "map-card-container"
+                }
+              },
+              {
+                "id": "c82983a1-4337-44be-9472-7d983005716a::label",
+                "type": "text",
+                "x": 168.5,
+                "y": 161,
+                "width": 153,
+                "height": 30,
+                "strokeColor": "#1a1a1a",
+                "backgroundColor": "transparent",
+                "fillStyle": "solid",
+                "strokeWidth": 1,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 913704,
+                "version": 1,
+                "versionNonce": 805383,
+                "index": "a1",
+                "isDeleted": false,
+                "groupIds": [
+                  "c82983a1-4337-44be-9472-7d983005716a::group"
+                ],
+                "frameId": null,
+                "boundElements": null,
+                "updated": 1777754389340,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "c82983a1-4337-44be-9472-7d983005716a",
+                  "role": "map-card-label"
+                },
+                "fontSize": 24,
+                "fontFamily": 1,
+                "text": "Seccion 5.1",
+                "textAlign": "center",
+                "verticalAlign": "middle",
+                "containerId": "c82983a1-4337-44be-9472-7d983005716a::container",
+                "originalText": "Seccion 5.1",
+                "autoResize": true,
+                "lineHeight": 1.25
+              },
+              {
+                "id": "2b99c60c-b76b-4593-8ec4-12cfb9f97474::container",
+                "type": "rectangle",
+                "x": 152,
+                "y": 211,
+                "width": 384,
+                "height": 145,
+                "strokeColor": "#4f3c2c",
+                "backgroundColor": "#fff9ef",
+                "fillStyle": "solid",
+                "strokeWidth": 2,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 169533,
+                "version": 1,
+                "versionNonce": 7911800,
+                "index": "a2",
+                "isDeleted": false,
+                "groupIds": [
+                  "2b99c60c-b76b-4593-8ec4-12cfb9f97474::group"
+                ],
+                "frameId": null,
+                "boundElements": [
+                  {
+                    "id": "2b99c60c-b76b-4593-8ec4-12cfb9f97474::label",
+                    "type": "text"
+                  }
+                ],
+                "updated": 1777754429501,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "2b99c60c-b76b-4593-8ec4-12cfb9f97474",
+                  "role": "map-card-container"
+                }
+              },
+              {
+                "id": "2b99c60c-b76b-4593-8ec4-12cfb9f97474::label",
+                "type": "text",
+                "x": 225.5,
+                "y": 268.5,
+                "width": 237,
+                "height": 30,
+                "strokeColor": "#1a1a1a",
+                "backgroundColor": "transparent",
+                "fillStyle": "solid",
+                "strokeWidth": 1,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 30374,
+                "version": 1,
+                "versionNonce": 9481798,
+                "index": "a3",
+                "isDeleted": false,
+                "groupIds": [
+                  "2b99c60c-b76b-4593-8ec4-12cfb9f97474::group"
+                ],
+                "frameId": null,
+                "boundElements": null,
+                "updated": 1777754429501,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "2b99c60c-b76b-4593-8ec4-12cfb9f97474",
+                  "role": "map-card-label"
+                },
+                "fontSize": 24,
+                "fontFamily": 1,
+                "text": "Espacio vectorial",
+                "textAlign": "center",
+                "verticalAlign": "middle",
+                "containerId": "2b99c60c-b76b-4593-8ec4-12cfb9f97474::container",
+                "originalText": "Espacio vectorial",
+                "autoResize": true,
+                "lineHeight": 1.25
+              }
+            ],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
           "createdAt": "2026-05-02T20:36:23.399Z",
-          "updatedAt": "2026-05-07T15:18:51.056Z"
+          "updatedAt": "2026-05-02T20:36:23.399Z"
         },
-        "theorems": {
-          "id": "theorems",
-          "name": "Teoremas",
-          "cards": {},
-          "selectedCardId": null,
-          "draftText": "",
+        "84490347-c853-461d-9d68-7437b9d512ff::section::theorems": {
+          "id": "84490347-c853-461d-9d68-7437b9d512ff::section::theorems",
+          "title": "Teoremas",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "theorems",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
           "createdAt": "2026-05-02T20:36:23.399Z",
-          "updatedAt": "2026-05-02T21:06:26.494Z"
+          "updatedAt": "2026-05-02T20:36:23.399Z"
         },
-        "exams": {
-          "id": "exams",
-          "name": "Parciales",
-          "cards": {},
-          "selectedCardId": null,
-          "draftText": "",
+        "84490347-c853-461d-9d68-7437b9d512ff::section::exams": {
+          "id": "84490347-c853-461d-9d68-7437b9d512ff::section::exams",
+          "title": "Parciales",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "exams",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
           "createdAt": "2026-05-02T20:36:23.399Z",
-          "updatedAt": "2026-05-02T21:09:11.601Z"
+          "updatedAt": "2026-05-02T20:36:23.399Z"
         },
-        "exercises": {
-          "id": "exercises",
-          "name": "Ejercicios",
-          "cards": {},
-          "selectedCardId": null,
-          "draftText": "",
+        "84490347-c853-461d-9d68-7437b9d512ff::section::exercises": {
+          "id": "84490347-c853-461d-9d68-7437b9d512ff::section::exercises",
+          "title": "Ejercicios",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "exercises",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
           "createdAt": "2026-05-06T19:54:27.406Z",
           "updatedAt": "2026-05-06T19:54:27.406Z"
+        },
+        "12f4d6b9-bfe2-451a-8791-6a1e86569d96::child-map": {
+          "id": "12f4d6b9-bfe2-451a-8791-6a1e86569d96::child-map",
+          "title": "ejemplo",
+          "kind": "child",
+          "parentMapId": "84490347-c853-461d-9d68-7437b9d512ff::main",
+          "parentNodeId": "12f4d6b9-bfe2-451a-8791-6a1e86569d96",
+          "rootSectionId": null,
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-04-30T15:15:54.109Z",
+          "updatedAt": "2026-04-30T15:15:54.109Z"
+        },
+        "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::child-map": {
+          "id": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6::child-map",
+          "title": "Sabado",
+          "kind": "child",
+          "parentMapId": "84490347-c853-461d-9d68-7437b9d512ff::main",
+          "parentNodeId": "8ef54f07-07f0-4d55-aa07-c4f97939c0a6",
+          "rootSectionId": null,
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-02T19:14:11.647Z",
+          "updatedAt": "2026-05-02T19:14:11.647Z"
+        },
+        "c82983a1-4337-44be-9472-7d983005716a::child-map": {
+          "id": "c82983a1-4337-44be-9472-7d983005716a::child-map",
+          "title": "Seccion 5.1",
+          "kind": "child",
+          "parentMapId": "84490347-c853-461d-9d68-7437b9d512ff::section::definitions",
+          "parentNodeId": "c82983a1-4337-44be-9472-7d983005716a",
+          "rootSectionId": null,
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-02T20:39:49.340Z",
+          "updatedAt": "2026-05-02T20:39:49.340Z"
+        },
+        "2b99c60c-b76b-4593-8ec4-12cfb9f97474::child-map": {
+          "id": "2b99c60c-b76b-4593-8ec4-12cfb9f97474::child-map",
+          "title": "Espacio vectorial",
+          "kind": "child",
+          "parentMapId": "84490347-c853-461d-9d68-7437b9d512ff::section::definitions",
+          "parentNodeId": "2b99c60c-b76b-4593-8ec4-12cfb9f97474",
+          "rootSectionId": null,
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-02T20:40:29.501Z",
+          "updatedAt": "2026-05-02T20:40:29.501Z"
         }
       },
-      "activeSectionId": "definitions",
+      "mainMapId": "84490347-c853-461d-9d68-7437b9d512ff::main",
+      "sectionMapIds": {
+        "definitions": "84490347-c853-461d-9d68-7437b9d512ff::section::definitions",
+        "theorems": "84490347-c853-461d-9d68-7437b9d512ff::section::theorems",
+        "exams": "84490347-c853-461d-9d68-7437b9d512ff::section::exams",
+        "exercises": "84490347-c853-461d-9d68-7437b9d512ff::section::exercises"
+      },
       "createdAt": "2026-05-02T20:15:43.876Z",
       "updatedAt": "2026-05-07T15:18:51.056Z"
     },
     "8cba1abf-a832-4167-88e0-39adb306e5b2": {
       "id": "8cba1abf-a832-4167-88e0-39adb306e5b2",
       "name": "Ejemplo2",
-      "cards": {},
-      "selectedCardId": null,
-      "draftText": "",
-      "sections": {
-        "definitions": {
-          "id": "definitions",
-          "name": "Definiciones",
-          "cards": {
-            "f1197ac9-69ff-4361-8326-b4c2275c1898": {
-              "id": "f1197ac9-69ff-4361-8326-b4c2275c1898",
-              "text": "Algoritmo: Secuencia de pasos aritmetizables, finitos con el objetivo de resolver un determinado problema",
-              "detailsText": "",
-              "detailsTable": null,
-              "detailsImages": [],
-              "detailsTextBoxes": [],
-              "exerciseReferences": [],
-              "image": null,
-              "position": {
-                "x": 104,
-                "y": 112
+      "maps": {
+        "8cba1abf-a832-4167-88e0-39adb306e5b2::main": {
+          "id": "8cba1abf-a832-4167-88e0-39adb306e5b2::main",
+          "title": "Ejemplo2",
+          "kind": "main",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": null,
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
               },
-              "zIndex": 4,
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-02T20:16:10.263Z",
+          "updatedAt": "2026-05-02T20:16:10.263Z"
+        },
+        "8cba1abf-a832-4167-88e0-39adb306e5b2::section::definitions": {
+          "id": "8cba1abf-a832-4167-88e0-39adb306e5b2::section::definitions",
+          "title": "Definiciones",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "definitions",
+          "contentInitializedAt": null,
+          "nodes": {
+            "f1197ac9-69ff-4361-8326-b4c2275c1898": {
+              "nodeId": "f1197ac9-69ff-4361-8326-b4c2275c1898",
+              "elementId": "f1197ac9-69ff-4361-8326-b4c2275c1898::container",
+              "labelElementId": "f1197ac9-69ff-4361-8326-b4c2275c1898::label",
+              "label": "Algoritmo: Secuencia de pasos aritmetizables, finitos con el objetivo de resolver un determinado problema",
+              "childMapId": "f1197ac9-69ff-4361-8326-b4c2275c1898::child-map",
+              "note": "",
+              "image": null,
+              "legacyDetails": null,
               "createdAt": "2026-05-06T19:57:48.276Z",
-              "updatedAt": "2026-05-07T15:18:49.960Z",
-              "size": {
-                "width": 384,
-                "height": 111
-              }
+              "updatedAt": "2026-05-07T15:18:49.960Z"
             }
           },
-          "selectedCardId": null,
-          "draftText": "",
-          "createdAt": "2026-05-02T20:36:23.399Z",
-          "updatedAt": "2026-05-07T15:18:51.056Z"
-        },
-        "theorems": {
-          "id": "theorems",
-          "name": "Teoremas",
-          "cards": {},
-          "selectedCardId": null,
-          "draftText": "",
+          "scene": {
+            "elements": [
+              {
+                "id": "f1197ac9-69ff-4361-8326-b4c2275c1898::container",
+                "type": "rectangle",
+                "x": 104,
+                "y": 112,
+                "width": 384,
+                "height": 111,
+                "strokeColor": "#4f3c2c",
+                "backgroundColor": "#fff9ef",
+                "fillStyle": "solid",
+                "strokeWidth": 2,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 6033611,
+                "version": 1,
+                "versionNonce": 7735071,
+                "index": "a0",
+                "isDeleted": false,
+                "groupIds": [
+                  "f1197ac9-69ff-4361-8326-b4c2275c1898::group"
+                ],
+                "frameId": null,
+                "boundElements": [
+                  {
+                    "id": "f1197ac9-69ff-4361-8326-b4c2275c1898::label",
+                    "type": "text"
+                  }
+                ],
+                "updated": 1778097468276,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "f1197ac9-69ff-4361-8326-b4c2275c1898",
+                  "role": "map-card-container"
+                }
+              },
+              {
+                "id": "f1197ac9-69ff-4361-8326-b4c2275c1898::label",
+                "type": "text",
+                "x": 128,
+                "y": 152.5,
+                "width": 1462,
+                "height": 30,
+                "strokeColor": "#1a1a1a",
+                "backgroundColor": "transparent",
+                "fillStyle": "solid",
+                "strokeWidth": 1,
+                "strokeStyle": "solid",
+                "roundness": null,
+                "roughness": 0,
+                "opacity": 100,
+                "angle": 0,
+                "seed": 2666458,
+                "version": 1,
+                "versionNonce": 9260428,
+                "index": "a1",
+                "isDeleted": false,
+                "groupIds": [
+                  "f1197ac9-69ff-4361-8326-b4c2275c1898::group"
+                ],
+                "frameId": null,
+                "boundElements": null,
+                "updated": 1778097468276,
+                "link": null,
+                "locked": false,
+                "customData": {
+                  "nodeId": "f1197ac9-69ff-4361-8326-b4c2275c1898",
+                  "role": "map-card-label"
+                },
+                "fontSize": 24,
+                "fontFamily": 1,
+                "text": "Algoritmo: Secuencia de pasos aritmetizables, finitos con el objetivo de resolver un determinado problema",
+                "textAlign": "center",
+                "verticalAlign": "middle",
+                "containerId": "f1197ac9-69ff-4361-8326-b4c2275c1898::container",
+                "originalText": "Algoritmo: Secuencia de pasos aritmetizables, finitos con el objetivo de resolver un determinado problema",
+                "autoResize": true,
+                "lineHeight": 1.25
+              }
+            ],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
           "createdAt": "2026-05-02T20:36:23.399Z",
           "updatedAt": "2026-05-02T20:36:23.399Z"
         },
-        "exams": {
-          "id": "exams",
-          "name": "Parciales",
-          "cards": {},
-          "selectedCardId": null,
-          "draftText": "",
+        "8cba1abf-a832-4167-88e0-39adb306e5b2::section::theorems": {
+          "id": "8cba1abf-a832-4167-88e0-39adb306e5b2::section::theorems",
+          "title": "Teoremas",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "theorems",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
           "createdAt": "2026-05-02T20:36:23.399Z",
-          "updatedAt": "2026-05-06T19:56:11.187Z"
+          "updatedAt": "2026-05-02T20:36:23.399Z"
         },
-        "exercises": {
-          "id": "exercises",
-          "name": "Ejercicios",
-          "cards": {},
-          "selectedCardId": null,
-          "draftText": "",
+        "8cba1abf-a832-4167-88e0-39adb306e5b2::section::exams": {
+          "id": "8cba1abf-a832-4167-88e0-39adb306e5b2::section::exams",
+          "title": "Parciales",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "exams",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-02T20:36:23.399Z",
+          "updatedAt": "2026-05-02T20:36:23.399Z"
+        },
+        "8cba1abf-a832-4167-88e0-39adb306e5b2::section::exercises": {
+          "id": "8cba1abf-a832-4167-88e0-39adb306e5b2::section::exercises",
+          "title": "Ejercicios",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "exercises",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
           "createdAt": "2026-05-06T19:54:27.407Z",
-          "updatedAt": "2026-05-06T19:56:11.187Z"
+          "updatedAt": "2026-05-06T19:54:27.407Z"
+        },
+        "f1197ac9-69ff-4361-8326-b4c2275c1898::child-map": {
+          "id": "f1197ac9-69ff-4361-8326-b4c2275c1898::child-map",
+          "title": "Algoritmo: Secuencia de pasos aritmetizables, finitos con el objetivo de resolver un determinado problema",
+          "kind": "child",
+          "parentMapId": "8cba1abf-a832-4167-88e0-39adb306e5b2::section::definitions",
+          "parentNodeId": "f1197ac9-69ff-4361-8326-b4c2275c1898",
+          "rootSectionId": null,
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-06T19:57:48.276Z",
+          "updatedAt": "2026-05-06T19:57:48.276Z"
         }
       },
-      "activeSectionId": "definitions",
+      "mainMapId": "8cba1abf-a832-4167-88e0-39adb306e5b2::main",
+      "sectionMapIds": {
+        "definitions": "8cba1abf-a832-4167-88e0-39adb306e5b2::section::definitions",
+        "theorems": "8cba1abf-a832-4167-88e0-39adb306e5b2::section::theorems",
+        "exams": "8cba1abf-a832-4167-88e0-39adb306e5b2::section::exams",
+        "exercises": "8cba1abf-a832-4167-88e0-39adb306e5b2::section::exercises"
+      },
       "createdAt": "2026-05-02T20:16:10.263Z",
       "updatedAt": "2026-05-07T15:18:51.056Z"
+    },
+    "4b101ad0-4a33-4d3c-b277-5e33d67c66e9": {
+      "id": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9",
+      "name": "hoy",
+      "maps": {
+        "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::main": {
+          "id": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::main",
+          "title": "hoy",
+          "kind": "main",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": null,
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:14.901Z",
+          "updatedAt": "2026-05-09T18:39:14.901Z"
+        },
+        "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::definitions": {
+          "id": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::definitions",
+          "title": "Definiciones",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "definitions",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:14.901Z",
+          "updatedAt": "2026-05-09T18:39:14.901Z"
+        },
+        "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::theorems": {
+          "id": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::theorems",
+          "title": "Teoremas",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "theorems",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:14.901Z",
+          "updatedAt": "2026-05-09T18:39:14.901Z"
+        },
+        "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::exams": {
+          "id": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::exams",
+          "title": "Parciales",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "exams",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:14.901Z",
+          "updatedAt": "2026-05-09T18:39:14.901Z"
+        },
+        "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::exercises": {
+          "id": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::exercises",
+          "title": "Ejercicios",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "exercises",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:14.901Z",
+          "updatedAt": "2026-05-09T18:39:14.901Z"
+        }
+      },
+      "mainMapId": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::main",
+      "sectionMapIds": {
+        "definitions": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::definitions",
+        "theorems": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::theorems",
+        "exams": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::exams",
+        "exercises": "4b101ad0-4a33-4d3c-b277-5e33d67c66e9::section::exercises"
+      },
+      "createdAt": "2026-05-09T18:39:14.901Z",
+      "updatedAt": "2026-05-09T18:39:14.901Z"
+    },
+    "32976b73-0da0-438f-bd80-5124037597a5": {
+      "id": "32976b73-0da0-438f-bd80-5124037597a5",
+      "name": "ff",
+      "maps": {
+        "32976b73-0da0-438f-bd80-5124037597a5::main": {
+          "id": "32976b73-0da0-438f-bd80-5124037597a5::main",
+          "title": "ff",
+          "kind": "main",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": null,
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:21.882Z",
+          "updatedAt": "2026-05-09T18:39:21.882Z"
+        },
+        "32976b73-0da0-438f-bd80-5124037597a5::section::definitions": {
+          "id": "32976b73-0da0-438f-bd80-5124037597a5::section::definitions",
+          "title": "Definiciones",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "definitions",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:21.882Z",
+          "updatedAt": "2026-05-09T18:39:21.882Z"
+        },
+        "32976b73-0da0-438f-bd80-5124037597a5::section::theorems": {
+          "id": "32976b73-0da0-438f-bd80-5124037597a5::section::theorems",
+          "title": "Teoremas",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "theorems",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:21.882Z",
+          "updatedAt": "2026-05-09T18:39:21.882Z"
+        },
+        "32976b73-0da0-438f-bd80-5124037597a5::section::exams": {
+          "id": "32976b73-0da0-438f-bd80-5124037597a5::section::exams",
+          "title": "Parciales",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "exams",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:21.882Z",
+          "updatedAt": "2026-05-09T18:39:21.882Z"
+        },
+        "32976b73-0da0-438f-bd80-5124037597a5::section::exercises": {
+          "id": "32976b73-0da0-438f-bd80-5124037597a5::section::exercises",
+          "title": "Ejercicios",
+          "kind": "section",
+          "parentMapId": null,
+          "parentNodeId": null,
+          "rootSectionId": "exercises",
+          "contentInitializedAt": null,
+          "nodes": {},
+          "scene": {
+            "elements": [],
+            "appState": {
+              "scrollX": 0,
+              "scrollY": 0,
+              "zoom": {
+                "value": 1
+              },
+              "viewBackgroundColor": "#f3dfc1",
+              "theme": "light",
+              "gridSize": null
+            },
+            "files": {}
+          },
+          "createdAt": "2026-05-09T18:39:21.882Z",
+          "updatedAt": "2026-05-09T18:39:21.882Z"
+        }
+      },
+      "mainMapId": "32976b73-0da0-438f-bd80-5124037597a5::main",
+      "sectionMapIds": {
+        "definitions": "32976b73-0da0-438f-bd80-5124037597a5::section::definitions",
+        "theorems": "32976b73-0da0-438f-bd80-5124037597a5::section::theorems",
+        "exams": "32976b73-0da0-438f-bd80-5124037597a5::section::exams",
+        "exercises": "32976b73-0da0-438f-bd80-5124037597a5::section::exercises"
+      },
+      "createdAt": "2026-05-09T18:39:21.882Z",
+      "updatedAt": "2026-05-09T18:39:21.882Z"
     }
   },
-  "activeCategoryId": null,
-  "activeMapKind": null,
-  "activeSectionId": null,
-  "selectedCategoryId": "84490347-c853-461d-9d68-7437b9d512ff",
+  "selectedCategoryId": "32976b73-0da0-438f-bd80-5124037597a5",
   "categoryDraftText": "",
-  "detailsTextBoxStyleDefaults": {
-    "fontSize": "small",
-    "color": "#111111",
-    "bold": false,
-    "strike": false,
-    "bulleted": false,
-    "align": "left"
-  },
-  "savedAt": "2026-05-07T15:18:56.116Z"
+  "activeCategoryId": null,
+  "activeMapId": null,
+  "savedAt": "2026-05-09T18:39:21.882Z"
 }
