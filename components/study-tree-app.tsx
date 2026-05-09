@@ -208,153 +208,6 @@ function isPdfFile(file: File) {
   return file.type === "application/pdf" || file.name.toLocaleLowerCase().endsWith(".pdf");
 }
 
-type ChromeDownloadUrlPayload = {
-  mimeType: string;
-  fileName: string;
-  url: string;
-};
-
-function sanitizeDroppedPdfName(value: string | null | undefined) {
-  const trimmed = value?.trim();
-
-  if (!trimmed) {
-    return "documento.pdf";
-  }
-
-  return trimmed.toLocaleLowerCase().endsWith(".pdf") ? trimmed : `${trimmed}.pdf`;
-}
-
-function inferPdfNameFromUrl(value: string) {
-  try {
-    const url = new URL(value, window.location.href);
-    const pathname = decodeURIComponent(url.pathname);
-    const candidate = pathname.split("/").pop();
-    return sanitizeDroppedPdfName(candidate && candidate.length > 0 ? candidate : "documento.pdf");
-  } catch {
-    return "documento.pdf";
-  }
-}
-
-function parseDownloadUrlPayload(raw: string | null | undefined): ChromeDownloadUrlPayload | null {
-  if (!raw) {
-    return null;
-  }
-
-  const firstColon = raw.indexOf(":");
-  const secondColon = raw.indexOf(":", firstColon + 1);
-
-  if (firstColon <= 0 || secondColon <= firstColon) {
-    return null;
-  }
-
-  const mimeType = raw.slice(0, firstColon).trim();
-  const fileName = raw.slice(firstColon + 1, secondColon).trim();
-  const url = raw.slice(secondColon + 1).trim();
-
-  if (!mimeType || !url) {
-    return null;
-  }
-
-  return {
-    mimeType,
-    fileName: sanitizeDroppedPdfName(fileName || "documento.pdf"),
-    url,
-  };
-}
-
-function getUriListPayload(raw: string | null | undefined) {
-  if (!raw) {
-    return null;
-  }
-
-  const url = raw
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line && !line.startsWith("#"));
-
-  return url ?? null;
-}
-
-function getFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
-  if (!dataTransfer) {
-    return [] as File[];
-  }
-
-  const filesFromItems = Array.from(dataTransfer.items ?? [])
-    .filter((item) => item.kind === "file")
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => file instanceof File);
-  const filesFromList = Array.from(dataTransfer.files ?? []);
-  const deduped = new Map<string, File>();
-
-  for (const file of [...filesFromItems, ...filesFromList]) {
-    deduped.set(`${file.name}:${file.size}:${file.lastModified}:${file.type}`, file);
-  }
-
-  return Array.from(deduped.values());
-}
-
-async function resolvePdfFileFromUrl(url: string, preferredFileName?: string) {
-  const parsedUrl = new URL(url, window.location.href);
-  const response = await fetch(parsedUrl.toString());
-
-  if (!response.ok) {
-    throw new Error(`No se pudo recuperar el PDF arrastrado (${response.status}).`);
-  }
-
-  const blob = await response.blob();
-  const fileName = sanitizeDroppedPdfName(preferredFileName ?? inferPdfNameFromUrl(parsedUrl.toString()));
-  const mimeType = blob.type || "application/pdf";
-
-  if (mimeType !== "application/pdf" && !fileName.toLocaleLowerCase().endsWith(".pdf")) {
-    throw new Error("La URL arrastrada no corresponde a un PDF legible.");
-  }
-
-  return new File([blob], fileName, {
-    type: mimeType === "application/pdf" ? mimeType : "application/pdf",
-    lastModified: Date.now(),
-  });
-}
-
-async function resolvePdfFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
-  if (!dataTransfer) {
-    return [] as File[];
-  }
-
-  const deduped = new Map<string, File>();
-
-  for (const file of getFilesFromDataTransfer(dataTransfer)) {
-    if (isPdfFile(file)) {
-      deduped.set(`${file.name}:${file.size}:${file.lastModified}:${file.type}`, file);
-    }
-  }
-
-  const downloadUrlPayload = parseDownloadUrlPayload(dataTransfer.getData("DownloadURL"));
-
-  if (
-    downloadUrlPayload &&
-    (downloadUrlPayload.mimeType === "application/pdf" ||
-      downloadUrlPayload.fileName.toLocaleLowerCase().endsWith(".pdf"))
-  ) {
-    const file = await resolvePdfFileFromUrl(downloadUrlPayload.url, downloadUrlPayload.fileName);
-    deduped.set(`${file.name}:${file.size}:${file.lastModified}:${file.type}`, file);
-  }
-
-  const uriListPayload = getUriListPayload(dataTransfer.getData("text/uri-list"));
-
-  if (
-    uriListPayload &&
-    (uriListPayload.toLocaleLowerCase().includes(".pdf") ||
-      uriListPayload.startsWith("blob:") ||
-      uriListPayload.startsWith("data:"))
-  ) {
-    const file = await resolvePdfFileFromUrl(uriListPayload);
-    deduped.set(`${file.name}:${file.size}:${file.lastModified}:${file.type}`, file);
-  }
-
-  return Array.from(deduped.values());
-}
-
 function createPdfSceneElements(args: {
   assetPath: string;
   fileName: string;
@@ -1676,40 +1529,25 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const handleCanvasPdfDrop = useEffectEvent(async ({ file, fileHandle, sceneX, sceneY, nativeEvent }: ExcalidrawDropFilePayload) => {
+  const handleCanvasPdfDrop = useEffectEvent(async ({ file, fileHandle, sceneX, sceneY }: ExcalidrawDropFilePayload) => {
     if (pureMapSession) {
       return false;
     }
 
-    const resolvedFiles: File[] = [];
+    const resolvedFile =
+      file ??
+      (fileHandle && "kind" in fileHandle && fileHandle.kind === "file"
+        ? await (fileHandle as FileSystemFileHandle).getFile()
+        : null);
 
-    if (file && isPdfFile(file)) {
-      resolvedFiles.push(file);
-    }
-
-    if (fileHandle && "kind" in fileHandle && fileHandle.kind === "file") {
-      const handleFile = await (fileHandle as FileSystemFileHandle).getFile();
-
-      if (isPdfFile(handleFile)) {
-        resolvedFiles.push(handleFile);
-      }
-    }
-
-    const dataTransferFiles = await resolvePdfFilesFromDataTransfer(nativeEvent.dataTransfer);
-    const deduped = new Map<string, File>();
-
-    for (const candidate of [...resolvedFiles, ...dataTransferFiles]) {
-      deduped.set(`${candidate.name}:${candidate.size}:${candidate.lastModified}:${candidate.type}`, candidate);
-    }
-
-    if (deduped.size === 0) {
+    if (!resolvedFile || !isPdfFile(resolvedFile)) {
       return false;
     }
 
     await insertPdfCardsAtPosition({
       sceneX,
       sceneY,
-      files: Array.from(deduped.values()),
+      files: [resolvedFile],
     });
 
     return true;
