@@ -31,16 +31,6 @@ study-tree.json
 study-excalidraw/
 excalidraw-0.18.1/
 excalidraw-*/
-vendor-excalidraw/node_modules/
-!vendor-excalidraw/dist/
-!vendor-excalidraw/dist/dev/
-!vendor-excalidraw/dist/dev/**
-!vendor-excalidraw/dist/types/
-!vendor-excalidraw/dist/types/**
-vendor-excalidraw/dist/prod/
-vendor-excalidraw/dist/**/*.map
-vendor-excalidraw/package.json
-vendor-excalidraw/README.md
 public/excalidraw/*.js
 public/excalidraw/index.css
 public/excalidraw/data/
