@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import type { DragEvent as ReactDragEvent } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { ExcalidrawMapCanvas } from "@/components/excalidraw-map-canvas";
@@ -15,14 +14,11 @@ import {
   readPureExcalidrawScene,
   readProjectSnapshot,
   recoverStoredDirectoryHandle,
-  readPdfAsset,
   requestDirectoryPermission,
   selectProjectDirectory,
   supportsProjectDirectory,
-  writePdfAsset,
   writePureExcalidrawScene,
   writeProjectSnapshot,
-  buildPdfAssetPath,
 } from "@/lib/project-persistence";
 import {
   FIXED_SECTION_IDS,
@@ -34,7 +30,6 @@ import {
 } from "@/lib/types";
 import {
   getSectionLabel,
-  createOrderedElementIndices,
   hasValidExcalidrawElementIndex,
   normalizeSceneForRuntime,
 } from "@/lib/project-snapshot";
@@ -75,12 +70,6 @@ type PureMapSession = {
 };
 
 type PureMapSaveStatus = "idle" | "loading" | "saving" | "saved" | "error";
-
-type PdfDropPayload = {
-  clientX: number;
-  clientY: number;
-  files: File[];
-};
 
 function normalizeSearchText(value: string) {
   return value
@@ -168,173 +157,6 @@ function getNodeFromElementId(map: StudyMap | null, elementId: string | null | u
       (node) => node.elementId === elementId || node.labelElementId === elementId,
     ) ?? null
   );
-}
-
-function getPdfAssetPathFromElement(map: StudyMap | null, elementId: string | null | undefined) {
-  if (!map || !elementId) {
-    return null;
-  }
-
-  const element = map.scene.elements.find((entry) => entry.id === elementId && !entry.isDeleted);
-  const groupId = Array.isArray(element?.groupIds) ? element.groupIds[0] : null;
-  const candidates = map.scene.elements.filter((entry) => {
-    if (entry.isDeleted) {
-      return false;
-    }
-
-    if (entry.id === elementId) {
-      return true;
-    }
-
-    return Boolean(groupId && Array.isArray(entry.groupIds) && entry.groupIds.includes(groupId));
-  });
-
-  for (const candidate of candidates) {
-    const customData = candidate.customData;
-
-    if (
-      customData &&
-      typeof customData === "object" &&
-      (customData as { role?: unknown }).role === "pdf-file" &&
-      typeof (customData as { assetPath?: unknown }).assetPath === "string"
-    ) {
-      return (customData as { assetPath: string }).assetPath;
-    }
-  }
-
-  return null;
-}
-
-function isPdfFile(file: File) {
-  return file.type === "application/pdf" || file.name.toLocaleLowerCase().endsWith(".pdf");
-}
-
-function createPdfSceneElements(args: {
-  assetPath: string;
-  fileName: string;
-  x: number;
-  y: number;
-  order: number;
-}) {
-  const id = crypto.randomUUID();
-  const groupId = `${id}::pdf-group`;
-  const [boxIndex, pdfTextIndex, nameIndex] = createOrderedElementIndices(args.order + 3).slice(args.order);
-  const timestamp = Date.now();
-  const safeName = args.fileName.replace(/\.pdf$/i, "") || "Documento";
-  const sharedCustomData = {
-    role: "pdf-file",
-    assetPath: args.assetPath,
-    mimeType: "application/pdf",
-    originalName: args.fileName,
-  };
-
-  return [
-    {
-      id: `${id}::box`,
-      type: "rectangle",
-      x: args.x,
-      y: args.y,
-      width: 320,
-      height: 200,
-      strokeColor: "#111111",
-      backgroundColor: "#ffd3a3",
-      fillStyle: "solid",
-      strokeWidth: 2,
-      strokeStyle: "solid",
-      roundness: null,
-      roughness: 1,
-      opacity: 100,
-      angle: 0,
-      seed: Math.floor(Math.random() * 10_000_000),
-      version: 1,
-      versionNonce: Math.floor(Math.random() * 10_000_000),
-      index: boxIndex,
-      isDeleted: false,
-      groupIds: [groupId],
-      frameId: null,
-      boundElements: null,
-      updated: timestamp,
-      link: null,
-      locked: false,
-      customData: sharedCustomData,
-    },
-    {
-      id: `${id}::pdf-label`,
-      type: "text",
-      x: args.x + 110,
-      y: args.y + 76,
-      width: 100,
-      height: 48,
-      strokeColor: "#111111",
-      backgroundColor: "transparent",
-      fillStyle: "solid",
-      strokeWidth: 1,
-      strokeStyle: "solid",
-      roundness: null,
-      roughness: 1,
-      opacity: 100,
-      angle: 0,
-      seed: Math.floor(Math.random() * 10_000_000),
-      version: 1,
-      versionNonce: Math.floor(Math.random() * 10_000_000),
-      index: pdfTextIndex,
-      isDeleted: false,
-      groupIds: [groupId],
-      frameId: null,
-      boundElements: null,
-      updated: timestamp,
-      link: null,
-      locked: false,
-      customData: sharedCustomData,
-      fontSize: 48,
-      fontFamily: 1,
-      text: "PDF",
-      textAlign: "center",
-      verticalAlign: "middle",
-      containerId: null,
-      originalText: "PDF",
-      autoResize: false,
-      lineHeight: 1.25,
-    },
-    {
-      id: `${id}::name`,
-      type: "text",
-      x: args.x,
-      y: args.y + 220,
-      width: 320,
-      height: 42,
-      strokeColor: "#111111",
-      backgroundColor: "transparent",
-      fillStyle: "solid",
-      strokeWidth: 1,
-      strokeStyle: "solid",
-      roundness: null,
-      roughness: 1,
-      opacity: 100,
-      angle: 0,
-      seed: Math.floor(Math.random() * 10_000_000),
-      version: 1,
-      versionNonce: Math.floor(Math.random() * 10_000_000),
-      index: nameIndex,
-      isDeleted: false,
-      groupIds: [groupId],
-      frameId: null,
-      boundElements: null,
-      updated: timestamp,
-      link: null,
-      locked: false,
-      customData: sharedCustomData,
-      fontSize: 36,
-      fontFamily: 1,
-      text: safeName,
-      textAlign: "center",
-      verticalAlign: "middle",
-      containerId: null,
-      originalText: safeName,
-      autoResize: false,
-      lineHeight: 1.25,
-    },
-  ] satisfies ExcalidrawSceneState["elements"];
 }
 
 function serializeCanvasScene(api: ExcalidrawImperativeAPI): ExcalidrawSceneState {
@@ -694,8 +516,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const activeMapRef = useRef<StudyMap | null>(null);
   const buildInfoRef = useRef(buildInfo);
   const runtimeSceneRef = useRef<ExcalidrawSceneState | null>(null);
-  const mapCanvasShellRef = useRef<HTMLDivElement | null>(null);
-  const pdfObjectUrlsRef = useRef<Record<string, string>>({});
 
   const categoriesList = useMemo(() => Object.values(categories), [categories]);
   const selectedCategory =
@@ -1258,15 +1078,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     };
   }, []);
 
-  useEffect(() => {
-    return () => {
-      for (const url of Object.values(pdfObjectUrlsRef.current)) {
-        URL.revokeObjectURL(url);
-      }
-      pdfObjectUrlsRef.current = {};
-    };
-  }, []);
-
   const createNodeAtViewportCenter = () => {
     const api = excalidrawApiRef.current;
 
@@ -1440,150 +1251,8 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     setMapScene(scene);
   }, [setMapScene]);
 
-  const openPdfAsset = useEffectEvent(async (assetPath: string) => {
-    const handle = directoryHandle;
-
-    if (!handle) {
-      setPersistenceError("Selecciona una carpeta del proyecto para abrir PDFs.");
-      return;
-    }
-
-    try {
-      const file = await readPdfAsset(handle, assetPath);
-      const previousUrl = pdfObjectUrlsRef.current[assetPath];
-
-      if (previousUrl) {
-        URL.revokeObjectURL(previousUrl);
-      }
-
-      const url = URL.createObjectURL(file);
-      pdfObjectUrlsRef.current[assetPath] = url;
-      window.open(url, "_blank", "noopener,noreferrer");
-      setPersistenceError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "No se pudo abrir el PDF.";
-      setPersistenceError(`No se pudo abrir el PDF: ${message}`);
-    }
-  });
-
-  const handlePdfDrop = useEffectEvent(async ({ clientX, clientY, files }: PdfDropPayload) => {
-    const api = excalidrawApiRef.current;
-    const handle = directoryHandle;
-
-    if (files.length === 0) {
-      return;
-    }
-
-    if (!api || !activeMapRef.current) {
-      setPersistenceError("El mapa todavia no esta listo para insertar PDFs.");
-      return;
-    }
-
-    if (!handle) {
-      setPersistenceError("Selecciona una carpeta del proyecto para guardar PDFs.");
-      return;
-    }
-
-    try {
-      const appState = api.getAppState();
-      const zoomValue = appState.zoom.value || 1;
-      const rect = mapCanvasShellRef.current?.getBoundingClientRect();
-      const baseX = Math.round(((clientX - (rect?.left ?? 0)) - appState.scrollX) / zoomValue - 160);
-      const baseY = Math.round(((clientY - (rect?.top ?? 0)) - appState.scrollY) / zoomValue - 100);
-      const currentElements = api
-        .getSceneElementsIncludingDeleted()
-        .filter((element) => element.type !== "selection")
-        .map((element) => ({ ...element }));
-      const newElements: ExcalidrawSceneState["elements"] = [];
-
-      for (const [fileIndex, file] of files.entries()) {
-        const assetPath = buildPdfAssetPath(crypto.randomUUID(), file.name);
-        await writePdfAsset(handle, assetPath, file);
-        newElements.push(
-          ...createPdfSceneElements({
-            assetPath,
-            fileName: file.name,
-            x: baseX + fileIndex * 36,
-            y: baseY + fileIndex * 36,
-            order: currentElements.length + newElements.length,
-          }),
-        );
-      }
-
-      const nextElements = [...currentElements, ...newElements];
-      const selectedElementIds = Object.fromEntries(newElements.map((element) => [element.id, true])) as Record<
-        string,
-        true
-      >;
-
-      api.updateScene({
-        elements: nextElements as never,
-        appState: {
-          selectedElementIds,
-        },
-      });
-      handleSceneChange({
-        elements: nextElements,
-        appState: serializeCanvasScene(api).appState,
-        files: api.getFiles(),
-      });
-      setPersistenceError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "No se pudo guardar el PDF.";
-      setPersistenceError(`No se pudo guardar el PDF: ${message}`);
-    }
-  });
-
-  const handlePdfDragOverCapture = useEffectEvent((event: ReactDragEvent<HTMLDivElement>) => {
-    if (pureMapSession) {
-      return;
-    }
-
-    const hasPdf = Array.from(event.dataTransfer?.files ?? []).some((file) => isPdfFile(file));
-
-    if (!hasPdf) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.nativeEvent.stopImmediatePropagation?.();
-    event.dataTransfer.dropEffect = "copy";
-  });
-
-  const handlePdfDropCapture = useEffectEvent((event: ReactDragEvent<HTMLDivElement>) => {
-    if (pureMapSession) {
-      return;
-    }
-
-    const files = Array.from(event.dataTransfer?.files ?? []).filter(isPdfFile);
-
-    if (files.length === 0) {
-      return;
-    }
-
-    const payload: PdfDropPayload = {
-      clientX: event.clientX,
-      clientY: event.clientY,
-      files,
-    };
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.nativeEvent.stopImmediatePropagation?.();
-
-    void handlePdfDrop(payload);
-  });
-
   const handleCardPointerUp = useEffectEvent((event: PointerEvent, elementId: string | null | undefined, dragged: boolean) => {
     if (dragged || event.detail < 2) {
-      return;
-    }
-
-    const pdfAssetPath = getPdfAssetPathFromElement(activeMap, elementId);
-
-    if (pdfAssetPath) {
-      void openPdfAsset(pdfAssetPath);
       return;
     }
 
@@ -1804,16 +1473,11 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
             </label>
           </div>
 
-          <div
-            ref={mapCanvasShellRef}
-            className="immersive-map-canvas"
-          >
+          <div className="immersive-map-canvas">
             <ExcalidrawMapCanvas
               key={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}:${canvasRetryKey}`}
               errorKey={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}:${canvasRetryKey}`}
               initialData={excalidrawInitialData}
-              onHostDragOverCapture={handlePdfDragOverCapture}
-              onHostDropCapture={handlePdfDropCapture}
               excalidrawAPI={(api) => {
                 handleCanvasApi(api);
               }}

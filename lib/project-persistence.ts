@@ -147,11 +147,6 @@ function getImageExtension(mimeType: string) {
   }
 }
 
-function sanitizeFileName(value: string) {
-  const sanitized = value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/\s+/g, " ").trim();
-  return sanitized || "documento.pdf";
-}
-
 async function getNestedDirectoryHandle(
   handle: FileSystemDirectoryHandle,
   segments: string[],
@@ -195,14 +190,6 @@ async function writeImageAsset(handle: FileSystemDirectoryHandle, asset: Pending
   const writable = await fileHandle.createWritable();
 
   await writable.write(asset.blob);
-  await writable.close();
-}
-
-async function writeBlobAsset(handle: FileSystemDirectoryHandle, relativePath: string, blob: Blob) {
-  const fileHandle = await getRelativeFileHandle(handle, relativePath, true);
-  const writable = await fileHandle.createWritable();
-
-  await writable.write(blob);
   await writable.close();
 }
 
@@ -272,20 +259,6 @@ export class InvalidProjectFileError extends Error {
 
 export function buildNodeImageAssetPath(nodeId: string, mimeType: string) {
   return `${ASSETS_DIRECTORY_NAME}/${nodeId}.${getImageExtension(mimeType)}`;
-}
-
-export function buildPdfAssetPath(id: string, fileName?: string) {
-  const safeName = sanitizeFileName(fileName ?? "documento.pdf").replace(/\.pdf$/i, "");
-  return `${ASSETS_DIRECTORY_NAME}/pdfs/${id}-${safeName}.pdf`;
-}
-
-export async function writePdfAsset(handle: FileSystemDirectoryHandle, assetPath: string, file: File) {
-  await writeBlobAsset(handle, assetPath, file);
-}
-
-export async function readPdfAsset(handle: FileSystemDirectoryHandle, assetPath: string) {
-  const fileHandle = await getRelativeFileHandle(handle, assetPath, false);
-  return fileHandle.getFile();
 }
 
 export function supportsProjectDirectory() {
