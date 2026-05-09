@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import type { DragEvent as ReactDragEvent } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { ExcalidrawMapCanvas } from "@/components/excalidraw-map-canvas";
@@ -206,61 +207,6 @@ function getPdfAssetPathFromElement(map: StudyMap | null, elementId: string | nu
 
 function isPdfFile(file: File) {
   return file.type === "application/pdf" || file.name.toLocaleLowerCase().endsWith(".pdf");
-}
-
-function getFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
-  if (!dataTransfer) {
-    return [] as File[];
-  }
-
-  const filesFromItems = Array.from(dataTransfer.items ?? [])
-    .filter((item) => item.kind === "file")
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => file instanceof File);
-  const filesFromList = Array.from(dataTransfer.files ?? []);
-  const deduped = new Map<string, File>();
-
-  for (const file of [...filesFromItems, ...filesFromList]) {
-    deduped.set(`${file.name}:${file.size}:${file.lastModified}:${file.type}`, file);
-  }
-
-  return Array.from(deduped.values());
-}
-
-function getPdfFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
-  return getFilesFromDataTransfer(dataTransfer).filter(isPdfFile);
-}
-
-function hasFileDragPayload(dataTransfer: DataTransfer | null | undefined) {
-  if (!dataTransfer) {
-    return false;
-  }
-
-  if (Array.from(dataTransfer.items ?? []).some((item) => item.kind === "file")) {
-    return true;
-  }
-
-  return Array.from(dataTransfer.types ?? []).includes("Files");
-}
-
-function shouldTreatDragAsPdf(dataTransfer: DataTransfer | null | undefined) {
-  if (!dataTransfer) {
-    return false;
-  }
-
-  const itemTypes = Array.from(dataTransfer.items ?? [])
-    .filter((item) => item.kind === "file")
-    .map((item) => item.type.toLocaleLowerCase());
-
-  if (itemTypes.some((type) => type === "application/pdf" || type.endsWith("/pdf"))) {
-    return true;
-  }
-
-  if (getPdfFilesFromDataTransfer(dataTransfer).length > 0) {
-    return true;
-  }
-
-  return itemTypes.length === 0 && Array.from(dataTransfer.types ?? []).includes("Files");
 }
 
 function createPdfSceneElements(args: {
@@ -749,7 +695,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const buildInfoRef = useRef(buildInfo);
   const runtimeSceneRef = useRef<ExcalidrawSceneState | null>(null);
   const mapCanvasShellRef = useRef<HTMLDivElement | null>(null);
-  const mapCanvasHostRef = useRef<HTMLDivElement | null>(null);
   const pdfObjectUrlsRef = useRef<Record<string, string>>({});
 
   const categoriesList = useMemo(() => Object.values(categories), [categories]);
@@ -1589,25 +1534,29 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const handleNativePdfDragOver = useEffectEvent((event: DragEvent) => {
-    if (pureMapSession || !shouldTreatDragAsPdf(event.dataTransfer)) {
+  const handlePdfDragOverCapture = useEffectEvent((event: ReactDragEvent<HTMLDivElement>) => {
+    if (pureMapSession) {
+      return;
+    }
+
+    const hasPdf = Array.from(event.dataTransfer?.files ?? []).some((file) => isPdfFile(file));
+
+    if (!hasPdf) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    event.stopImmediatePropagation();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = "copy";
-    }
+    event.nativeEvent.stopImmediatePropagation?.();
+    event.dataTransfer.dropEffect = "copy";
   });
 
-  const handleNativePdfDrop = useEffectEvent((event: DragEvent) => {
+  const handlePdfDropCapture = useEffectEvent((event: ReactDragEvent<HTMLDivElement>) => {
     if (pureMapSession) {
       return;
     }
 
-    const files = getPdfFilesFromDataTransfer(event.dataTransfer);
+    const files = Array.from(event.dataTransfer?.files ?? []).filter(isPdfFile);
 
     if (files.length === 0) {
       return;
@@ -1621,38 +1570,10 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
 
     event.preventDefault();
     event.stopPropagation();
-    event.stopImmediatePropagation();
+    event.nativeEvent.stopImmediatePropagation?.();
 
     void handlePdfDrop(payload);
   });
-
-  useEffect(() => {
-    const host = mapCanvasHostRef.current;
-
-    if (!host || canvasStatus !== "ready" || pureMapSession || !activeMap) {
-      return;
-    }
-
-    const handleDragOver = (event: Event) => {
-      if (event instanceof DragEvent && hasFileDragPayload(event.dataTransfer)) {
-        handleNativePdfDragOver(event);
-      }
-    };
-
-    const handleDrop = (event: Event) => {
-      if (event instanceof DragEvent) {
-        handleNativePdfDrop(event);
-      }
-    };
-
-    host.addEventListener("dragover", handleDragOver, true);
-    host.addEventListener("drop", handleDrop, true);
-
-    return () => {
-      host.removeEventListener("dragover", handleDragOver, true);
-      host.removeEventListener("drop", handleDrop, true);
-    };
-  }, [activeMap?.id, canvasStatus, pureMapSession, handleNativePdfDragOver, handleNativePdfDrop]);
 
   const handleCardPointerUp = useEffectEvent((event: PointerEvent, elementId: string | null | undefined, dragged: boolean) => {
     if (dragged || event.detail < 2) {
@@ -1888,10 +1809,11 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
             className="immersive-map-canvas"
           >
             <ExcalidrawMapCanvas
-              ref={mapCanvasHostRef}
               key={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}:${canvasRetryKey}`}
               errorKey={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}:${canvasRetryKey}`}
               initialData={excalidrawInitialData}
+              onHostDragOverCapture={handlePdfDragOverCapture}
+              onHostDropCapture={handlePdfDropCapture}
               excalidrawAPI={(api) => {
                 handleCanvasApi(api);
               }}
