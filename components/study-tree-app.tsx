@@ -41,6 +41,9 @@ import { useTreeStore } from "@/lib/tree-store";
 
 const AUTOSAVE_DEBOUNCE_MS = 450;
 const CANVAS_MOUNT_TIMEOUT_MS = 6_000;
+const PDF_DROP_PENDING_WINDOW_MS = 3_000;
+const PDF_DROP_FALLBACK_INSERT_MS = 250;
+const EXCALIDRAW_INVALID_FILE_ERROR_TEXT = "No se pudo cargar el archivo no válido";
 
 type AppBootState = "loading" | "needs-directory" | "ready";
 type MapCanvasStatus = "idle" | "loading" | "ready" | "error";
@@ -79,6 +82,13 @@ type PdfDropPayload = {
   clientX: number;
   clientY: number;
   files: File[];
+};
+
+type PendingPdfDropStatus = "pending" | "consumed" | "expired";
+
+type PendingPdfDrop = PdfDropPayload & {
+  createdAt: number;
+  status: PendingPdfDropStatus;
 };
 
 type ChromeDownloadUrlPayload = {
@@ -914,6 +924,8 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const mapCanvasShellRef = useRef<HTMLDivElement | null>(null);
   const mapCanvasHostRef = useRef<HTMLDivElement | null>(null);
   const pdfObjectUrlsRef = useRef<Record<string, string>>({});
+  const pendingPdfDropRef = useRef<PendingPdfDrop | null>(null);
+  const pendingPdfDropTimeoutRef = useRef<number | null>(null);
 
   const categoriesList = useMemo(() => Object.values(categories), [categories]);
   const selectedCategory =
@@ -1684,7 +1696,56 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const handlePdfDrop = useEffectEvent(async ({ clientX, clientY, files }: PdfDropPayload) => {
+  const clearPendingPdfDrop = useEffectEvent((status: PendingPdfDropStatus = "expired") => {
+    if (pendingPdfDropTimeoutRef.current !== null) {
+      window.clearTimeout(pendingPdfDropTimeoutRef.current);
+      pendingPdfDropTimeoutRef.current = null;
+    }
+
+    if (pendingPdfDropRef.current) {
+      pendingPdfDropRef.current.status = status;
+      pendingPdfDropRef.current = null;
+    }
+  });
+
+  const getFreshPendingPdfDrop = useEffectEvent(() => {
+    const pending = pendingPdfDropRef.current;
+
+    if (!pending || pending.status !== "pending") {
+      return null;
+    }
+
+    if (Date.now() - pending.createdAt > PDF_DROP_PENDING_WINDOW_MS) {
+      clearPendingPdfDrop("expired");
+      return null;
+    }
+
+    return pending;
+  });
+
+  const schedulePendingPdfFallbackInsert = useEffectEvent(() => {
+    if (pendingPdfDropTimeoutRef.current !== null) {
+      window.clearTimeout(pendingPdfDropTimeoutRef.current);
+    }
+
+    pendingPdfDropTimeoutRef.current = window.setTimeout(() => {
+      const pending = getFreshPendingPdfDrop();
+
+      if (!pending) {
+        return;
+      }
+
+      pending.status = "consumed";
+      void insertPdfCardsAtPosition({
+        clientX: pending.clientX,
+        clientY: pending.clientY,
+        files: pending.files,
+      });
+      clearPendingPdfDrop("consumed");
+    }, PDF_DROP_FALLBACK_INSERT_MS);
+  });
+
+  const insertPdfCardsAtPosition = useEffectEvent(async ({ clientX, clientY, files }: PdfDropPayload) => {
     const api = excalidrawApiRef.current;
     const handle = directoryHandle;
 
@@ -1752,6 +1813,57 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
+  const closeExcalidrawErrorModal = useEffectEvent((modal: HTMLElement) => {
+    modal.style.opacity = "0";
+    modal.style.pointerEvents = "none";
+
+    const background = modal.querySelector<HTMLElement>(".Modal__background");
+
+    if (background) {
+      background.click();
+      return;
+    }
+
+    const closeButton = modal.querySelector<HTMLElement>(".Dialog__close");
+    if (closeButton) {
+      closeButton.click();
+    }
+  });
+
+  const handlePendingPdfErrorModal = useEffectEvent(() => {
+    const pending = getFreshPendingPdfDrop();
+    const host = mapCanvasHostRef.current;
+
+    if (!pending || !host) {
+      return;
+    }
+
+    const modals = Array.from(document.querySelectorAll<HTMLElement>(".excalidraw-modal-container .Modal"));
+    const matchingModal = modals.find((modal) => {
+      const content = modal.querySelector<HTMLElement>(".Dialog__content");
+      return content?.textContent?.includes(EXCALIDRAW_INVALID_FILE_ERROR_TEXT);
+    });
+
+    if (!matchingModal) {
+      return;
+    }
+
+    const canvasRoot = host.querySelector(".excalidraw");
+
+    if (canvasRoot && !document.body.contains(canvasRoot)) {
+      return;
+    }
+
+    pending.status = "consumed";
+    closeExcalidrawErrorModal(matchingModal);
+    void insertPdfCardsAtPosition({
+      clientX: pending.clientX,
+      clientY: pending.clientY,
+      files: pending.files,
+    });
+    clearPendingPdfDrop("consumed");
+  });
+
   const handleNativePdfDragOver = useEffectEvent((event: DragEvent) => {
     if (pureMapSession || !shouldTreatDragAsPdf(event.dataTransfer)) {
       return;
@@ -1786,11 +1898,15 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
           throw new Error("No se pudo recuperar ningun PDF del arrastre.");
         }
 
-        await handlePdfDrop({
+        pendingPdfDropRef.current = {
           clientX,
           clientY,
           files,
-        });
+          createdAt: Date.now(),
+          status: "pending",
+        };
+        setPersistenceError(null);
+        schedulePendingPdfFallbackInsert();
       } catch (error) {
         const message =
           error instanceof Error
@@ -1800,6 +1916,28 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       }
     })();
   });
+
+  useEffect(() => {
+    if (pureMapSession || canvasStatus !== "ready" || !activeMap) {
+      clearPendingPdfDrop("expired");
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      handlePendingPdfErrorModal();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => {
+      observer.disconnect();
+      clearPendingPdfDrop("expired");
+    };
+  }, [activeMap?.id, canvasStatus, pureMapSession, clearPendingPdfDrop, handlePendingPdfErrorModal]);
 
   useEffect(() => {
     const host = mapCanvasHostRef.current;
@@ -1828,32 +1966,15 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       if (!event.composedPath().includes(host)) {
         return;
       }
-
-      if (hasFileDragPayload(event.dataTransfer) || shouldTreatDragAsPdf(event.dataTransfer)) {
-        handleNativePdfDragOver(event);
-      }
-    };
-
-    const handleDropCapture = (event: Event) => {
-      if (!(event instanceof DragEvent)) {
-        return;
-      }
-
-      if (!event.composedPath().includes(host)) {
-        return;
-      }
-
       handleNativePdfDrop(event);
     };
 
     document.addEventListener("dragover", handleDragOver, true);
     document.addEventListener("drop", handleDrop, true);
-    document.addEventListener("drop", handleDropCapture, true);
 
     return () => {
       document.removeEventListener("dragover", handleDragOver, true);
       document.removeEventListener("drop", handleDrop, true);
-      document.removeEventListener("drop", handleDropCapture, true);
     };
   }, [activeMap?.id, canvasStatus, pureMapSession, handleNativePdfDragOver, handleNativePdfDrop]);
 
