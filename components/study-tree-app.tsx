@@ -198,6 +198,7 @@ function HomeScreen({
 }) {
   const [renameDraft, setRenameDraft] = useState("");
   const [isRenaming, setIsRenaming] = useState(false);
+  const [createDraft, setCreateDraft] = useState("");
   const createDraftRef = useRef("");
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
@@ -221,6 +222,7 @@ function HomeScreen({
       const currentIndex = selectedIndex >= 0 ? selectedIndex : 0;
       const nextIndex = (currentIndex + direction + categories.length) % categories.length;
       createDraftRef.current = "";
+      setCreateDraft("");
       onSelectCategory(categories[nextIndex].id);
     },
     [categories, onSelectCategory, selectedCategory?.id],
@@ -239,6 +241,7 @@ function HomeScreen({
     setRenameDraft(selectedCategory?.name ?? "");
     setIsRenaming(false);
     createDraftRef.current = "";
+    setCreateDraft("");
     clearLongPressTimer();
     longPressTriggeredRef.current = false;
   }, [clearLongPressTimer, selectedCategory?.id, selectedCategory?.name]);
@@ -264,6 +267,7 @@ function HomeScreen({
       if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
         event.preventDefault();
         createDraftRef.current = "";
+        setCreateDraft("");
         moveSelection(-1);
         return;
       }
@@ -271,6 +275,7 @@ function HomeScreen({
       if (event.key === "ArrowRight" || event.key === "ArrowDown") {
         event.preventDefault();
         createDraftRef.current = "";
+        setCreateDraft("");
         moveSelection(1);
         return;
       }
@@ -279,6 +284,7 @@ function HomeScreen({
         event.preventDefault();
         const nextName = createDraftRef.current.trim();
         createDraftRef.current = "";
+        setCreateDraft("");
 
         if (nextName) {
           onCreateCategory(nextName);
@@ -288,17 +294,20 @@ function HomeScreen({
 
       if (event.key === "Escape") {
         createDraftRef.current = "";
+        setCreateDraft("");
         return;
       }
 
       if (event.key === "Backspace") {
         createDraftRef.current = createDraftRef.current.slice(0, -1);
+        setCreateDraft(createDraftRef.current);
         return;
       }
 
       if (event.key.length === 1) {
         if (/^[\p{L}\p{N} ]$/u.test(event.key)) {
           createDraftRef.current += event.key;
+          setCreateDraft(createDraftRef.current);
         }
       }
     };
@@ -440,6 +449,11 @@ function HomeScreen({
           </div>
         </div>
       </div>
+      {createDraft ? (
+        <div className="category-global-draft" aria-live="polite">
+          {createDraft}
+        </div>
+      ) : null}
     </div>
   );
 }

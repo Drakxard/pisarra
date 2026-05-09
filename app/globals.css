@@ -246,6 +246,25 @@ img {
   color: var(--foreground-muted);
 }
 
+.category-global-draft {
+  position: fixed;
+  right: clamp(1rem, 3vw, 2rem);
+  bottom: clamp(1rem, 3vw, 2rem);
+  z-index: 20;
+  max-width: min(28rem, calc(100vw - 2rem));
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 0.5rem;
+  background: #050505;
+  color: #ffffff;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+  font-family: var(--font-heading), serif;
+  font-size: clamp(1rem, 2vw, 1.35rem);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
 .map-editor {
   position: relative;
   min-height: 100vh;
