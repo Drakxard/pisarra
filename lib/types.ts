@@ -1,4 +1,4 @@
-import type { BinaryFiles } from "@excalidraw/excalidraw/types";
+import type { BinaryFiles } from "@/lib/excalidraw";
 
 export const FIXED_SECTION_IDS = ["definitions", "theorems", "exams", "exercises"] as const;
 

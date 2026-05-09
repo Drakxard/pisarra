@@ -2,11 +2,11 @@
 
 import dynamic from "next/dynamic";
 import { Component, forwardRef, type ErrorInfo, type ReactNode } from "react";
-import type { ExcalidrawProps } from "@excalidraw/excalidraw/types";
+import type { ExcalidrawProps } from "@/lib/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 
 const Excalidraw = dynamic(
-  async () => (await import("@excalidraw/excalidraw")).Excalidraw,
+  async () => (await import("@/lib/excalidraw")).Excalidraw,
   {
     ssr: false,
   },
