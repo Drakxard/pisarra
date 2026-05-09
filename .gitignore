@@ -31,7 +31,12 @@ study-tree.json
 study-excalidraw/
 excalidraw-0.18.1/
 excalidraw-*/
+vendor-excalidraw/
+vendor-excalidraw/**
 public/excalidraw/*.js
 public/excalidraw/index.css
 public/excalidraw/data/
 public/excalidraw/locales/
+public/excalidraw/dist/
+public/excalidraw/chunk-*.js
+public/excalidraw/subset-*.chunk.js
