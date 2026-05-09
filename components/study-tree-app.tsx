@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import type { DragEvent as ReactDragEvent } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { ExcalidrawMapCanvas } from "@/components/excalidraw-map-canvas";
@@ -74,6 +75,12 @@ type PureMapSession = {
 };
 
 type PureMapSaveStatus = "idle" | "loading" | "saving" | "saved" | "error";
+
+type PdfDropPayload = {
+  clientX: number;
+  clientY: number;
+  files: File[];
+};
 
 function normalizeSearchText(value: string) {
   return value
@@ -689,8 +696,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const runtimeSceneRef = useRef<ExcalidrawSceneState | null>(null);
   const mapCanvasShellRef = useRef<HTMLDivElement | null>(null);
   const pdfObjectUrlsRef = useRef<Record<string, string>>({});
-  const pdfDropCleanupRef = useRef<(() => void) | null>(null);
-  const pdfDropListenerMapIdRef = useRef<string | null>(null);
 
   const categoriesList = useMemo(() => Object.values(categories), [categories]);
   const selectedCategory =
@@ -1461,18 +1466,13 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const handlePdfDrop = useEffectEvent(async (event: DragEvent) => {
+  const handlePdfDrop = useEffectEvent(async ({ clientX, clientY, files }: PdfDropPayload) => {
     const api = excalidrawApiRef.current;
     const handle = directoryHandle;
-    const files = Array.from(event.dataTransfer?.files ?? []).filter(isPdfFile);
 
     if (files.length === 0) {
       return;
     }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
 
     if (!api || !activeMapRef.current) {
       setPersistenceError("El mapa todavia no esta listo para insertar PDFs.");
@@ -1488,8 +1488,8 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       const appState = api.getAppState();
       const zoomValue = appState.zoom.value || 1;
       const rect = mapCanvasShellRef.current?.getBoundingClientRect();
-      const baseX = Math.round(((event.clientX - (rect?.left ?? 0)) - appState.scrollX) / zoomValue - 160);
-      const baseY = Math.round(((event.clientY - (rect?.top ?? 0)) - appState.scrollY) / zoomValue - 100);
+      const baseX = Math.round(((clientX - (rect?.left ?? 0)) - appState.scrollX) / zoomValue - 160);
+      const baseY = Math.round(((clientY - (rect?.top ?? 0)) - appState.scrollY) / zoomValue - 100);
       const currentElements = api
         .getSceneElementsIncludingDeleted()
         .filter((element) => element.type !== "selection")
@@ -1534,103 +1534,46 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const attachPdfDropListeners = useEffectEvent(() => {
-    const shell = mapCanvasShellRef.current;
-    const mapId = activeMapRef.current?.id ?? null;
-
-    pdfDropCleanupRef.current?.();
-    pdfDropCleanupRef.current = null;
-    pdfDropListenerMapIdRef.current = null;
-
-    if (!shell || pureMapSession || !mapId) {
+  const handlePdfDragOverCapture = useEffectEvent((event: ReactDragEvent<HTMLDivElement>) => {
+    if (pureMapSession) {
       return;
     }
 
-    const handleNativeDragOver = (event: Event) => {
-      if (!(event instanceof DragEvent)) {
-        return;
-      }
+    const hasPdf = Array.from(event.dataTransfer?.files ?? []).some((file) => isPdfFile(file));
 
-      const hasPdf = Array.from(event.dataTransfer?.files ?? []).some((file) => isPdfFile(file));
-
-      if (!hasPdf) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = "copy";
-      }
-    };
-
-    const handleNativeDrop = (event: Event) => {
-      if (!(event instanceof DragEvent)) {
-        return;
-      }
-
-      void handlePdfDrop(event);
-    };
-
-    const bindToHost = (host: HTMLElement) => {
-      host.addEventListener("dragover", handleNativeDragOver, true);
-      host.addEventListener("drop", handleNativeDrop, true);
-      pdfDropListenerMapIdRef.current = mapId;
-      console.info("[StudyTree] pdf-drop-listeners-attached", { mapId });
-
-      pdfDropCleanupRef.current = () => {
-        host.removeEventListener("dragover", handleNativeDragOver, true);
-        host.removeEventListener("drop", handleNativeDrop, true);
-        pdfDropListenerMapIdRef.current = null;
-        console.info("[StudyTree] pdf-drop-listeners-detached", { mapId });
-      };
-    };
-
-    const existingHost = shell.querySelector<HTMLElement>(".excalidraw");
-    if (existingHost) {
-      bindToHost(existingHost);
+    if (!hasPdf) {
       return;
     }
 
-    const observer = new MutationObserver(() => {
-      const host = shell.querySelector<HTMLElement>(".excalidraw");
-
-      if (!host) {
-        return;
-      }
-
-      observer.disconnect();
-      bindToHost(host);
-    });
-
-    observer.observe(shell, {
-      childList: true,
-      subtree: true,
-    });
-
-    pdfDropCleanupRef.current = () => {
-      observer.disconnect();
-      pdfDropListenerMapIdRef.current = null;
-    };
+    event.preventDefault();
+    event.stopPropagation();
+    event.nativeEvent.stopImmediatePropagation?.();
+    event.dataTransfer.dropEffect = "copy";
   });
 
-  useEffect(() => {
-    if (canvasStatus !== "ready" || pureMapSession || !activeMap) {
-      pdfDropCleanupRef.current?.();
-      pdfDropCleanupRef.current = null;
-      pdfDropListenerMapIdRef.current = null;
+  const handlePdfDropCapture = useEffectEvent((event: ReactDragEvent<HTMLDivElement>) => {
+    if (pureMapSession) {
       return;
     }
 
-    attachPdfDropListeners();
+    const files = Array.from(event.dataTransfer?.files ?? []).filter(isPdfFile);
 
-    return () => {
-      pdfDropCleanupRef.current?.();
-      pdfDropCleanupRef.current = null;
-      pdfDropListenerMapIdRef.current = null;
+    if (files.length === 0) {
+      return;
+    }
+
+    const payload: PdfDropPayload = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      files,
     };
-  }, [activeMap?.id, canvasStatus, pureMapSession, attachPdfDropListeners]);
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.nativeEvent.stopImmediatePropagation?.();
+
+    void handlePdfDrop(payload);
+  });
 
   const handleCardPointerUp = useEffectEvent((event: PointerEvent, elementId: string | null | undefined, dragged: boolean) => {
     if (dragged || event.detail < 2) {
@@ -1869,6 +1812,8 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
               key={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}:${canvasRetryKey}`}
               errorKey={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}:${canvasRetryKey}`}
               initialData={excalidrawInitialData}
+              onHostDragOverCapture={handlePdfDragOverCapture}
+              onHostDropCapture={handlePdfDropCapture}
               excalidrawAPI={(api) => {
                 handleCanvasApi(api);
               }}

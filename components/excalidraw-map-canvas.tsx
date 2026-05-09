@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import type { DragEvent as ReactDragEvent } from "react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import type { ExcalidrawProps } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
@@ -16,6 +17,8 @@ type ExcalidrawMapCanvasProps = ExcalidrawProps & {
   errorKey?: string;
   onRenderError?: (error: Error) => void;
   fallback?: ReactNode;
+  onHostDragOverCapture?: (event: ReactDragEvent<HTMLDivElement>) => void;
+  onHostDropCapture?: (event: ReactDragEvent<HTMLDivElement>) => void;
 };
 
 type CanvasBoundaryProps = {
@@ -59,9 +62,20 @@ class CanvasErrorBoundary extends Component<CanvasBoundaryProps, CanvasBoundaryS
   }
 }
 
-export function ExcalidrawMapCanvas({ errorKey, onRenderError, fallback, ...props }: ExcalidrawMapCanvasProps) {
+export function ExcalidrawMapCanvas({
+  errorKey,
+  onRenderError,
+  fallback,
+  onHostDragOverCapture,
+  onHostDropCapture,
+  ...props
+}: ExcalidrawMapCanvasProps) {
   return (
-    <div className="excalidraw-host">
+    <div
+      className="excalidraw-host"
+      onDragOverCapture={onHostDragOverCapture}
+      onDropCapture={onHostDropCapture}
+    >
       <CanvasErrorBoundary errorKey={errorKey} onRenderError={onRenderError} fallback={fallback}>
         <Excalidraw langCode="es-ES" {...props} />
       </CanvasErrorBoundary>
