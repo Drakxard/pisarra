@@ -81,12 +81,6 @@ type PdfDropPayload = {
   files: File[];
 };
 
-type ChromeDownloadUrlPayload = {
-  mimeType: string;
-  fileName: string;
-  url: string;
-};
-
 function normalizeSearchText(value: string) {
   return value
     .normalize("NFD")
@@ -214,27 +208,6 @@ function isPdfFile(file: File) {
   return file.type === "application/pdf" || file.name.toLocaleLowerCase().endsWith(".pdf");
 }
 
-function sanitizeDroppedPdfName(value: string | null | undefined) {
-  const trimmed = value?.trim();
-
-  if (!trimmed) {
-    return "documento.pdf";
-  }
-
-  return trimmed.toLocaleLowerCase().endsWith(".pdf") ? trimmed : `${trimmed}.pdf`;
-}
-
-function inferPdfNameFromUrl(value: string) {
-  try {
-    const url = new URL(value);
-    const pathname = decodeURIComponent(url.pathname);
-    const candidate = pathname.split("/").pop();
-    return sanitizeDroppedPdfName(candidate && candidate.length > 0 ? candidate : "documento.pdf");
-  } catch {
-    return "documento.pdf";
-  }
-}
-
 function getFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
   if (!dataTransfer) {
     return [] as File[];
@@ -256,130 +229,6 @@ function getFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined)
 
 function getPdfFilesFromDataTransfer(dataTransfer: DataTransfer | null | undefined) {
   return getFilesFromDataTransfer(dataTransfer).filter(isPdfFile);
-}
-
-function parseDownloadUrlPayload(raw: string | null | undefined): ChromeDownloadUrlPayload | null {
-  if (!raw) {
-    return null;
-  }
-
-  const firstColon = raw.indexOf(":");
-  const secondColon = raw.indexOf(":", firstColon + 1);
-
-  if (firstColon <= 0 || secondColon <= firstColon) {
-    return null;
-  }
-
-  const mimeType = raw.slice(0, firstColon).trim();
-  const fileName = raw.slice(firstColon + 1, secondColon).trim();
-  const url = raw.slice(secondColon + 1).trim();
-
-  if (!mimeType || !url) {
-    return null;
-  }
-
-  return {
-    mimeType,
-    fileName: sanitizeDroppedPdfName(fileName || "documento.pdf"),
-    url,
-  };
-}
-
-function getUriListPayload(raw: string | null | undefined) {
-  if (!raw) {
-    return null;
-  }
-
-  const url = raw
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line && !line.startsWith("#"));
-
-  return url ?? null;
-}
-
-async function resolvePdfFileFromUrl(url: string, preferredFileName?: string) {
-  let parsedUrl: URL | null = null;
-
-  try {
-    parsedUrl = new URL(url, window.location.href);
-  } catch {
-    throw new Error("Chrome no expuso una URL valida para el PDF.");
-  }
-
-  const protocol = parsedUrl.protocol;
-  const sameOrigin = parsedUrl.origin === window.location.origin;
-
-  if (!["blob:", "data:", "https:", "http:"].includes(protocol)) {
-    throw new Error("Chrome expuso un origen de PDF no compatible para este arrastre.");
-  }
-
-  if ((protocol === "http:" || protocol === "https:") && !sameOrigin && protocol !== "https:") {
-    throw new Error("Chrome expuso una URL del PDF que no se puede leer de forma segura.");
-  }
-
-  const response = await fetch(parsedUrl.toString());
-
-  if (!response.ok) {
-    throw new Error(`No se pudo recuperar el PDF arrastrado (${response.status}).`);
-  }
-
-  const blob = await response.blob();
-  const fileName = sanitizeDroppedPdfName(preferredFileName ?? inferPdfNameFromUrl(parsedUrl.toString()));
-  const mimeType = blob.type || "application/pdf";
-
-  if (mimeType !== "application/pdf" && !fileName.toLocaleLowerCase().endsWith(".pdf")) {
-    throw new Error("La URL arrastrada no corresponde a un PDF legible.");
-  }
-
-  return new File([blob], fileName, {
-    type: mimeType === "application/pdf" ? mimeType : "application/pdf",
-    lastModified: Date.now(),
-  });
-}
-
-async function resolveDroppedPdf(dataTransfer: DataTransfer | null | undefined) {
-  if (!dataTransfer) {
-    return [] as File[];
-  }
-
-  const items = Array.from(dataTransfer.items ?? []).filter((item) => item.kind === "file");
-  const handlePromises = items.map((item) => item.getAsFileSystemHandle?.() ?? Promise.resolve(null));
-  const handles = handlePromises.length > 0 ? await Promise.all(handlePromises) : [];
-  const filesFromHandles = await Promise.all(
-    handles.map(async (handle) => {
-      if (!handle || handle.kind !== "file") {
-        return null;
-      }
-
-      return (handle as FileSystemFileHandle).getFile();
-    }),
-  );
-  const directFiles = getPdfFilesFromDataTransfer(dataTransfer);
-  const resolvedFiles = [...filesFromHandles.filter((file): file is File => file instanceof File), ...directFiles].filter(isPdfFile);
-  const deduped = new Map<string, File>();
-
-  for (const file of resolvedFiles) {
-    deduped.set(`${file.name}:${file.size}:${file.lastModified}:${file.type}`, file);
-  }
-
-  if (deduped.size > 0) {
-    return Array.from(deduped.values());
-  }
-
-  const downloadUrlPayload = parseDownloadUrlPayload(dataTransfer.getData("DownloadURL"));
-
-  if (downloadUrlPayload && (downloadUrlPayload.mimeType === "application/pdf" || downloadUrlPayload.fileName.toLocaleLowerCase().endsWith(".pdf"))) {
-    return [await resolvePdfFileFromUrl(downloadUrlPayload.url, downloadUrlPayload.fileName)];
-  }
-
-  const uriListPayload = getUriListPayload(dataTransfer.getData("text/uri-list"));
-
-  if (uriListPayload && (uriListPayload.toLocaleLowerCase().includes(".pdf") || uriListPayload.startsWith("blob:") || uriListPayload.startsWith("data:"))) {
-    return [await resolvePdfFileFromUrl(uriListPayload)];
-  }
-
-  throw new Error("Chrome no expuso el PDF arrastrado de forma legible. Prueba arrastrarlo desde el Explorador o descargalo primero.");
 }
 
 function hasFileDragPayload(dataTransfer: DataTransfer | null | undefined) {
@@ -408,18 +257,6 @@ function shouldTreatDragAsPdf(dataTransfer: DataTransfer | null | undefined) {
   }
 
   if (getPdfFilesFromDataTransfer(dataTransfer).length > 0) {
-    return true;
-  }
-
-  const downloadUrlPayload = parseDownloadUrlPayload(dataTransfer.getData("DownloadURL"));
-
-  if (downloadUrlPayload && (downloadUrlPayload.mimeType === "application/pdf" || downloadUrlPayload.fileName.toLocaleLowerCase().endsWith(".pdf"))) {
-    return true;
-  }
-
-  const uriListPayload = getUriListPayload(dataTransfer.getData("text/uri-list"));
-
-  if (uriListPayload && (uriListPayload.toLocaleLowerCase().includes(".pdf") || uriListPayload.startsWith("blob:") || uriListPayload.startsWith("data:"))) {
     return true;
   }
 
@@ -1770,35 +1607,23 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
       return;
     }
 
+    const files = getPdfFilesFromDataTransfer(event.dataTransfer);
+
+    if (files.length === 0) {
+      return;
+    }
+
+    const payload: PdfDropPayload = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      files,
+    };
+
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
 
-    const clientX = event.clientX;
-    const clientY = event.clientY;
-    const dataTransfer = event.dataTransfer;
-
-    void (async () => {
-      try {
-        const files = await resolveDroppedPdf(dataTransfer);
-
-        if (files.length === 0) {
-          throw new Error("No se pudo recuperar ningun PDF del arrastre.");
-        }
-
-        await handlePdfDrop({
-          clientX,
-          clientY,
-          files,
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Chrome no expuso el PDF arrastrado de forma legible.";
-        setPersistenceError(message);
-      }
-    })();
+    void handlePdfDrop(payload);
   });
 
   useEffect(() => {
@@ -1809,51 +1634,23 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
 
     const handleDragOver = (event: Event) => {
-      if (!(event instanceof DragEvent) || !hasFileDragPayload(event.dataTransfer)) {
-        return;
-      }
-
-      if (!event.composedPath().includes(host)) {
-        return;
-      }
-
-      handleNativePdfDragOver(event);
-    };
-
-    const handleDrop = (event: Event) => {
-      if (!(event instanceof DragEvent)) {
-        return;
-      }
-
-      if (!event.composedPath().includes(host)) {
-        return;
-      }
-
-      if (hasFileDragPayload(event.dataTransfer) || shouldTreatDragAsPdf(event.dataTransfer)) {
+      if (event instanceof DragEvent && hasFileDragPayload(event.dataTransfer)) {
         handleNativePdfDragOver(event);
       }
     };
 
-    const handleDropCapture = (event: Event) => {
-      if (!(event instanceof DragEvent)) {
-        return;
+    const handleDrop = (event: Event) => {
+      if (event instanceof DragEvent) {
+        handleNativePdfDrop(event);
       }
-
-      if (!event.composedPath().includes(host)) {
-        return;
-      }
-
-      handleNativePdfDrop(event);
     };
 
-    document.addEventListener("dragover", handleDragOver, true);
-    document.addEventListener("drop", handleDrop, true);
-    document.addEventListener("drop", handleDropCapture, true);
+    host.addEventListener("dragover", handleDragOver, true);
+    host.addEventListener("drop", handleDrop, true);
 
     return () => {
-      document.removeEventListener("dragover", handleDragOver, true);
-      document.removeEventListener("drop", handleDrop, true);
-      document.removeEventListener("drop", handleDropCapture, true);
+      host.removeEventListener("dragover", handleDragOver, true);
+      host.removeEventListener("drop", handleDrop, true);
     };
   }, [activeMap?.id, canvasStatus, pureMapSession, handleNativePdfDragOver, handleNativePdfDrop]);
 

@@ -6,7 +6,6 @@ declare global {
   }
 
   interface FileSystemHandle {
-    readonly kind: "file" | "directory";
     queryPermission(
       descriptor?: FileSystemHandlePermissionDescriptor,
     ): Promise<PermissionState>;
@@ -21,14 +20,6 @@ declare global {
       mode?: "read" | "readwrite";
       startIn?: FileSystemHandle | WellKnownDirectory;
     }): Promise<FileSystemDirectoryHandle>;
-  }
-
-  interface FileSystemFileHandle extends FileSystemHandle {
-    getFile(): Promise<File>;
-  }
-
-  interface DataTransferItem {
-    getAsFileSystemHandle?(): Promise<FileSystemHandle | null>;
   }
 
   type WellKnownDirectory =
