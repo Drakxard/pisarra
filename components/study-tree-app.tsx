@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { ExcalidrawMapCanvas } from "@/components/excalidraw-map-canvas";
 import {
@@ -1459,10 +1459,10 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const handlePdfDropCapture = useEffectEvent(async (event: ReactDragEvent<HTMLDivElement>) => {
+  const handlePdfDrop = useEffectEvent(async (event: DragEvent) => {
     const api = excalidrawApiRef.current;
     const handle = directoryHandle;
-    const files = Array.from(event.dataTransfer.files).filter(isPdfFile);
+    const files = Array.from(event.dataTransfer?.files ?? []).filter(isPdfFile);
 
     if (files.length === 0) {
       return;
@@ -1470,6 +1470,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
 
     event.preventDefault();
     event.stopPropagation();
+    event.stopImmediatePropagation();
 
     if (!api || !activeMapRef.current) {
       setPersistenceError("El mapa todavia no esta listo para insertar PDFs.");
@@ -1531,20 +1532,52 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     }
   });
 
-  const handlePdfDragOverCapture = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
-    const hasPdf = Array.from(event.dataTransfer.items ?? []).some((item) => {
-      if (item.kind !== "file") {
-        return false;
+  useEffect(() => {
+    const shell = mapCanvasShellRef.current;
+    const host =
+      shell?.querySelector<HTMLElement>(".excalidraw") ??
+      shell?.querySelector<HTMLElement>(".excalidraw-host") ??
+      null;
+
+    if (!host || pureMapSession || !activeMap) {
+      return;
+    }
+
+    const handleNativeDragOver = (event: Event) => {
+      if (!(event instanceof DragEvent)) {
+        return;
       }
 
-      return item.type === "application/pdf";
-    });
+      const hasPdf = Array.from(event.dataTransfer?.files ?? []).some((file) => isPdfFile(file));
 
-    if (hasPdf) {
+      if (!hasPdf) {
+        return;
+      }
+
       event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
-    }
-  }, []);
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "copy";
+      }
+    };
+
+    const handleNativeDrop = (event: Event) => {
+      if (!(event instanceof DragEvent)) {
+        return;
+      }
+
+      void handlePdfDrop(event);
+    };
+
+    host.addEventListener("dragover", handleNativeDragOver, true);
+    host.addEventListener("drop", handleNativeDrop, true);
+
+    return () => {
+      host.removeEventListener("dragover", handleNativeDragOver, true);
+      host.removeEventListener("drop", handleNativeDrop, true);
+    };
+  }, [activeMap?.id, pureMapSession, handlePdfDrop]);
 
   const handleCardPointerUp = useEffectEvent((event: PointerEvent, elementId: string | null | undefined, dragged: boolean) => {
     if (dragged || event.detail < 2) {
@@ -1778,10 +1811,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
           <div
             ref={mapCanvasShellRef}
             className="immersive-map-canvas"
-            onDragOverCapture={handlePdfDragOverCapture}
-            onDropCapture={(event) => {
-              void handlePdfDropCapture(event);
-            }}
           >
             <ExcalidrawMapCanvas
               key={`${activeCategory.id}:${activeMap.id}:${activeMap.contentInitializedAt ?? "pending"}:${canvasRetryKey}`}
