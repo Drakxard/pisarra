@@ -1443,6 +1443,9 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
 
             if (categoryId) {
               selectCategory(categoryId);
+              queueMicrotask(() => {
+                void flushProjectNow();
+              });
             }
           }}
           onRenameCategory={handleRenameCategory}
