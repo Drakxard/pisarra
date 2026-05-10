@@ -1707,6 +1707,13 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                   >
                     Nueva tarjeta
                   </button>
+                  <button
+                    type="button"
+                    className="map-floating-button"
+                    onClick={startPresentation}
+                  >
+                    Presentar
+                  </button>
                   {selectedNode ? (
                     <button
                       type="button"
