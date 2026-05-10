@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
@@ -37,6 +38,12 @@ import { useTreeStore } from "@/lib/tree-store";
 
 const AUTOSAVE_DEBOUNCE_MS = 450;
 const CANVAS_MOUNT_TIMEOUT_MS = 6_000;
+const ExcalidrawPresentationMenu = dynamic(
+  async () => (await import("@/components/excalidraw-presentation-menu")).ExcalidrawPresentationMenu,
+  {
+    ssr: false,
+  },
+);
 
 type AppBootState = "loading" | "needs-directory" | "ready";
 type MapCanvasStatus = "idle" | "loading" | "ready" | "error";
@@ -70,6 +77,13 @@ type PureMapSession = {
 };
 
 type PureMapSaveStatus = "idle" | "loading" | "saving" | "saved" | "error";
+type PresentationFrame = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 function normalizeSearchText(value: string) {
   return value
@@ -177,6 +191,67 @@ function serializeCanvasScene(api: ExcalidrawImperativeAPI): ExcalidrawSceneStat
     },
     files: { ...api.getFiles() },
   };
+}
+
+function getPresentationFrames(scene: ExcalidrawSceneState | null) {
+  if (!scene) {
+    return [] as PresentationFrame[];
+  }
+
+  return scene.elements
+    .filter((element): element is PresentationFrame & { type: "frame"; isDeleted?: boolean } => {
+      return (
+        element.type === "frame" &&
+        !element.isDeleted &&
+        typeof element.x === "number" &&
+        typeof element.y === "number" &&
+        typeof element.width === "number" &&
+        typeof element.height === "number" &&
+        element.width > 0 &&
+        element.height > 0
+      );
+    })
+    .map((element) => ({
+      id: element.id,
+      x: element.x,
+      y: element.y,
+      width: element.width,
+      height: element.height,
+    }))
+    .sort((left, right) => {
+      if (left.y !== right.y) {
+        return left.y - right.y;
+      }
+
+      return left.x - right.x;
+    });
+}
+
+function focusPresentationFrame(api: ExcalidrawImperativeAPI, frame: PresentationFrame) {
+  const appState = api.getAppState();
+  const padding = 64;
+  const availableWidth = Math.max(240, appState.width - padding * 2);
+  const availableHeight = Math.max(160, appState.height - padding * 2);
+  const zoomValue = Math.max(0.1, Math.min(4, Math.min(availableWidth / frame.width, availableHeight / frame.height)));
+  const centerX = frame.x + frame.width / 2;
+  const centerY = frame.y + frame.height / 2;
+
+  api.updateFrameRendering({
+    enabled: true,
+    clip: true,
+    name: true,
+    outline: false,
+  });
+  api.updateScene({
+    appState: {
+      scrollX: appState.width / 2 - centerX * zoomValue,
+      scrollY: appState.height / 2 - centerY * zoomValue,
+      zoom: {
+        value: zoomValue as typeof appState.zoom.value,
+      },
+      selectedElementIds: {},
+    },
+  });
 }
 
 function HomeScreen({
@@ -498,6 +573,8 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const [pureMapLoadedScene, setPureMapLoadedScene] = useState<ExcalidrawSceneState | null>(null);
   const [pureMapSaveStatus, setPureMapSaveStatus] = useState<PureMapSaveStatus>("idle");
   const [pureMapError, setPureMapError] = useState<string | null>(null);
+  const [isPresentationOpen, setIsPresentationOpen] = useState(false);
+  const [presentationIndex, setPresentationIndex] = useState(0);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const pureMapSaveTimeoutRef = useRef<number | null>(null);
   const pureMapLastSavedSignatureRef = useRef("");
@@ -505,6 +582,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   const lastPersistedProjectSignatureRef = useRef("");
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const pureMapApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  const presentationApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const sceneSyncSignatureRef = useRef("");
   const sceneAppliedRef = useRef(false);
   const ignoredEmptyMountChangeRef = useRef(false);
@@ -539,6 +617,8 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     [activeMapSceneSignature, activeMap?.id],
   );
   const runtimeScene = runtimeSceneState?.scene ?? activeMap?.scene ?? null;
+  const presentationFrames = useMemo(() => getPresentationFrames(runtimeScene), [runtimeScene]);
+  const activePresentationFrame = presentationFrames[presentationIndex] ?? null;
   const excalidrawInitialData = useMemo(
     () =>
       activeMap
@@ -551,6 +631,45 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
         : null,
     [activeMap, runtimeScene],
   );
+  const presentationInitialData = useMemo(
+    () =>
+      runtimeScene
+        ? ({
+            elements: runtimeScene.elements,
+            appState: runtimeScene.appState,
+            files: runtimeScene.files,
+            scrollToContent: false,
+          } as never)
+        : null,
+    [runtimeScene],
+  );
+  const closePresentation = useCallback(() => {
+    setIsPresentationOpen(false);
+    setPresentationIndex(0);
+  }, []);
+
+  const goToPreviousPresentationFrame = useCallback(() => {
+    setPresentationIndex((current) => Math.max(0, current - 1));
+  }, []);
+
+  const goToNextPresentationFrame = useCallback(() => {
+    setPresentationIndex((current) => Math.min(presentationFrames.length - 1, current + 1));
+  }, [presentationFrames.length]);
+
+  const startPresentation = useCallback(() => {
+    const api = excalidrawApiRef.current;
+
+    if (presentationFrames.length === 0) {
+      api?.setToast({
+        message: "Este mapa no tiene frames para presentar.",
+        closable: true,
+      });
+      return;
+    }
+
+    setPresentationIndex(0);
+    setIsPresentationOpen(true);
+  }, [presentationFrames]);
   const viewState = activeMapRouteError
     ? "invalid-map"
     : activeCategory && activeMap
@@ -567,6 +686,47 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     buildInfoRef.current = buildInfo;
     runtimeSceneRef.current = runtimeScene;
   }, [activeCategory, activeMap, buildInfo, runtimeScene]);
+
+  useEffect(() => {
+    if (!activeMap) {
+      closePresentation();
+    }
+  }, [activeMap, closePresentation]);
+
+  useEffect(() => {
+    if (presentationFrames.length === 0 && isPresentationOpen) {
+      closePresentation();
+      return;
+    }
+
+    setPresentationIndex((current) => {
+      if (presentationFrames.length === 0) {
+        return 0;
+      }
+
+      return Math.min(current, presentationFrames.length - 1);
+    });
+  }, [closePresentation, isPresentationOpen, presentationFrames.length]);
+
+  useEffect(() => {
+    if (!isPresentationOpen || !activePresentationFrame) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const api = presentationApiRef.current;
+
+      if (!api) {
+        return;
+      }
+
+      focusPresentationFrame(api, activePresentationFrame);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [activePresentationFrame, isPresentationOpen]);
 
   const centerNodeInViewport = useEffectEvent((node: MapNodeMeta) => {
     const api = excalidrawApiRef.current;
@@ -1121,6 +1281,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
   };
 
   const leaveMapShell = () => {
+    setIsPresentationOpen(false);
     setMapEntryError(null);
     setCanvasFailure(null);
     closeActiveMap();
@@ -1138,10 +1299,6 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
 
   useEffect(() => {
     const handleMapEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-
       const target = event.target;
       const isTextInput =
         target instanceof HTMLInputElement ||
@@ -1149,6 +1306,33 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
         (target instanceof HTMLElement && target.isContentEditable);
 
       if (isTextInput) {
+        return;
+      }
+
+      if (isPresentationOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          closePresentation();
+          return;
+        }
+
+        if (event.key === "ArrowRight" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          goToNextPresentationFrame();
+          return;
+        }
+
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          event.stopPropagation();
+          goToPreviousPresentationFrame();
+          return;
+        }
+      }
+
+      if (event.key !== "Escape") {
         return;
       }
 
@@ -1183,7 +1367,15 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     return () => {
       window.removeEventListener("keydown", handleMapEscape, { capture: true });
     };
-  }, [activeCategory, activeMap, pureMapSession]);
+  }, [
+    activeCategory,
+    activeMap,
+    closePresentation,
+    goToNextPresentationFrame,
+    goToPreviousPresentationFrame,
+    isPresentationOpen,
+    pureMapSession,
+  ]);
 
   const handleCanvasApi = useCallback((api: ExcalidrawImperativeAPI) => {
     excalidrawApiRef.current = api;
@@ -1567,7 +1759,9 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
                   selectNode(getNodeFromSelection(activeMapRef.current, selectedElementIds) ?? null);
                 });
               }}
-            />
+            >
+              <ExcalidrawPresentationMenu onStartPresentation={startPresentation} />
+            </ExcalidrawMapCanvas>
 
             {canvasStatus === "loading" ? (
               <div className="map-canvas-state" aria-live="polite">
@@ -1627,6 +1821,62 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
             {searchText && searchHits.length === 0 ? (
               <div className="search-feedback" aria-live="polite">
                 No se encontraron tarjetas.
+              </div>
+            ) : null}
+
+            {isPresentationOpen && presentationInitialData && activePresentationFrame ? (
+              <div className="presentation-overlay" aria-modal="true" role="dialog" aria-label="Modo presentacion">
+                <div className="presentation-canvas">
+                  <ExcalidrawMapCanvas
+                    key={`${activeMap.id}:presentation:${activePresentationFrame.id}`}
+                    initialData={presentationInitialData}
+                    excalidrawAPI={(api) => {
+                      presentationApiRef.current = api;
+                      focusPresentationFrame(api, activePresentationFrame);
+                    }}
+                    viewModeEnabled
+                    renderTopRightUI={() => null}
+                    UIOptions={{
+                      canvasActions: {
+                        clearCanvas: false,
+                        export: false,
+                        loadScene: false,
+                        saveToActiveFile: false,
+                        toggleTheme: false,
+                        changeViewBackgroundColor: false,
+                        saveAsImage: false,
+                      },
+                      tools: {
+                        image: false,
+                      },
+                    }}
+                  />
+                </div>
+
+                <div className="presentation-controls">
+                  <button
+                    type="button"
+                    className="map-floating-button"
+                    onClick={goToPreviousPresentationFrame}
+                    disabled={presentationIndex === 0}
+                  >
+                    Anterior
+                  </button>
+                  <span className="presentation-counter">
+                    {presentationIndex + 1} / {presentationFrames.length}
+                  </span>
+                  <button
+                    type="button"
+                    className="map-floating-button"
+                    onClick={goToNextPresentationFrame}
+                    disabled={presentationIndex >= presentationFrames.length - 1}
+                  >
+                    Siguiente
+                  </button>
+                  <button type="button" className="map-floating-button is-accent" onClick={closePresentation}>
+                    Cerrar
+                  </button>
+                </div>
               </div>
             ) : null}
             {persistenceError ? (
