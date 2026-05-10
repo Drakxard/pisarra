@@ -1309,6 +1309,24 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
         return;
       }
 
+      if (
+        !event.repeat &&
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "p"
+      ) {
+        if (!activeCategory || !activeMap) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        startPresentation();
+        return;
+      }
+
       if (isPresentationOpen) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -1375,6 +1393,7 @@ export function StudyTreeApp({ buildInfo }: { buildInfo: BuildInfo }) {
     goToPreviousPresentationFrame,
     isPresentationOpen,
     pureMapSession,
+    startPresentation,
   ]);
 
   const handleCanvasApi = useCallback((api: ExcalidrawImperativeAPI) => {
